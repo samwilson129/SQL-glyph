@@ -1,0 +1,343 @@
+{
+  "name": "sql-glyph",
+  "displayName": "SQL Glyph",
+  "description": "Decipher. Transform. Transpile. AST-powered SQL dialect conversion, AST inspection, and transformation analysis. Local processing; no database connection and no query execution.",
+  "version": "0.1.0",
+  "publisher": "sqlglyph",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other",
+    "Formatters"
+  ],
+  "keywords": [
+    "sql",
+    "postgresql",
+    "mysql",
+    "sql server",
+    "tsql",
+    "snowflake",
+    "bigquery",
+    "oracle",
+    "sqlite",
+    "duckdb",
+    "spark",
+    "trino",
+    "transpile",
+    "dialect",
+    "ast",
+    "sqlglot"
+  ],
+  "icon": "media/icons/icon.png",
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "SQL is parsed locally. Installing the Python engine is disabled in untrusted workspaces."
+    },
+    "virtualWorkspaces": true
+  },
+  "activationEvents": [
+    "onLanguage:sql",
+    "onCommand:sqlGlyph.convertSelection",
+    "onCommand:sqlGlyph.convertDocument",
+    "onCommand:sqlGlyph.inspectAst",
+    "onCommand:sqlGlyph.compareDialects",
+    "onCommand:sqlGlyph.showAnalysis",
+    "onCommand:sqlGlyph.selectSourceDialect",
+    "onCommand:sqlGlyph.selectTargetDialect",
+    "onCommand:sqlGlyph.openConversionPanel",
+    "onCommand:sqlGlyph.setupEngine",
+    "onCommand:sqlGlyph.showOutput",
+    "onView:sqlGlyph.conversionView",
+    "onView:sqlGlyph.astView"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "sqlGlyph.convertSelection",
+        "title": "SQL Glyph: Convert Selected SQL",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.convertDocument",
+        "title": "SQL Glyph: Convert Entire File",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.inspectAst",
+        "title": "SQL Glyph: Inspect AST",
+        "category": "SQL Glyph",
+        "icon": "$(symbol-structure)"
+      },
+      {
+        "command": "sqlGlyph.compareDialects",
+        "title": "SQL Glyph: Compare Dialects",
+        "category": "SQL Glyph",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "sqlGlyph.showAnalysis",
+        "title": "SQL Glyph: Show Conversion Analysis",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.selectSourceDialect",
+        "title": "SQL Glyph: Select Source Dialect",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.selectTargetDialect",
+        "title": "SQL Glyph: Select Target Dialect",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.openConversionPanel",
+        "title": "SQL Glyph: Open Conversion Panel",
+        "category": "SQL Glyph",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "sqlGlyph.setupEngine",
+        "title": "SQL Glyph: Set Up Local Engine",
+        "category": "SQL Glyph",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "sqlGlyph.showOutput",
+        "title": "SQL Glyph: Show Engine Output",
+        "category": "SQL Glyph"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "sqlGlyph.editorMenu",
+        "label": "SQL Glyph"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "sqlGlyph.editorMenu",
+          "when": "resourceLangId == sql",
+          "group": "navigation@10"
+        }
+      ],
+      "sqlGlyph.editorMenu": [
+        {
+          "command": "sqlGlyph.convertSelection",
+          "when": "editorHasSelection && resourceLangId == sql",
+          "group": "sqlglyph@1"
+        },
+        {
+          "command": "sqlGlyph.convertDocument",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@2"
+        },
+        {
+          "command": "sqlGlyph.inspectAst",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@3"
+        },
+        {
+          "command": "sqlGlyph.compareDialects",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@4"
+        },
+        {
+          "command": "sqlGlyph.showAnalysis",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@5"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sqlGlyph.convertSelection",
+          "when": "editorLangId == sql"
+        },
+        {
+          "command": "sqlGlyph.convertDocument",
+          "when": "editorLangId == sql"
+        },
+        {
+          "command": "sqlGlyph.inspectAst",
+          "when": "editorLangId == sql"
+        },
+        {
+          "command": "sqlGlyph.compareDialects",
+          "when": "editorLangId == sql"
+        },
+        {
+          "command": "sqlGlyph.showAnalysis",
+          "when": "editorLangId == sql"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sqlGlyph.inspectAst",
+          "when": "view == sqlGlyph.astView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sqlGlyph.openConversionPanel",
+          "when": "view == sqlGlyph.conversionView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sqlGlyph.setupEngine",
+          "when": "view == sqlGlyph.conversionView || view == sqlGlyph.astView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sqlGlyph",
+          "title": "SQL Glyph",
+          "icon": "media/icons/sql-glyph.svg"
+        }
+      ]
+    },
+    "views": {
+      "sqlGlyph": [
+        {
+          "id": "sqlGlyph.conversionView",
+          "name": "Conversion",
+          "type": "webview"
+        },
+        {
+          "id": "sqlGlyph.astView",
+          "name": "AST Explorer",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SQL Glyph",
+      "properties": {
+        "sqlGlyph.pythonPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the Python 3.9+ interpreter used for the local SQLGlot engine. Leave empty to use SQL Glyph's managed environment or a detected `python3`/`python` on PATH.",
+          "scope": "machine-overridable"
+        },
+        "sqlGlyph.defaultSourceDialect": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "postgres",
+            "mysql",
+            "tsql",
+            "snowflake",
+            "bigquery",
+            "oracle",
+            "sqlite",
+            "duckdb",
+            "spark",
+            "trino"
+          ],
+          "enumDescriptions": [
+            "Detect the source dialect heuristically and ask when uncertain.",
+            "PostgreSQL",
+            "MySQL",
+            "Microsoft SQL Server / T-SQL",
+            "Snowflake",
+            "Google BigQuery",
+            "Oracle Database",
+            "SQLite",
+            "DuckDB",
+            "Spark SQL",
+            "Trino"
+          ],
+          "description": "Default source dialect for new conversions."
+        },
+        "sqlGlyph.defaultTargetDialect": {
+          "type": "string",
+          "default": "bigquery",
+          "enum": [
+            "postgres",
+            "mysql",
+            "tsql",
+            "snowflake",
+            "bigquery",
+            "oracle",
+            "sqlite",
+            "duckdb",
+            "spark",
+            "trino"
+          ],
+          "description": "Default target dialect for new conversions."
+        },
+        "sqlGlyph.prettyPrint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format generated SQL with SQLGlot's pretty printer."
+        },
+        "sqlGlyph.maxSqlSizeKb": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 16,
+          "maximum": 10240,
+          "description": "Maximum SQL input size in kilobytes. The local engine also enforces a 10 MB hard limit."
+        },
+        "sqlGlyph.engineTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 300000,
+          "description": "Timeout for a single local engine request in milliseconds."
+        },
+        "sqlGlyph.showConversionDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Publish compatibility diagnostics to the Problems panel for the converted document."
+        },
+        "sqlGlyph.autoDetectBehavior": {
+          "type": "string",
+          "default": "notify",
+          "enum": [
+            "notify",
+            "alwaysAsk"
+          ],
+          "enumDescriptions": [
+            "Proceed with a high-confidence detection and show a notification. Ask for medium/low confidence.",
+            "Always ask the user to confirm the detected source dialect."
+          ],
+          "description": "Controls how source-dialect auto-detection is confirmed."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test:python": "python -m pytest sql-engine/tests -c sql-engine/pytest.ini",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "test": "npm run test:python && npm run test:unit && npm run test:integration",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
+    "package:vsix": "npm run compile && vsce package --no-dependencies --allow-missing-repository -o sql-glyph-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "2.15.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -1,0 +1,295 @@
+{
+  "version": 1,
+  "description": "Shared dialect conversion fixtures. Consumed by both the Python engine tests and the TypeScript bridge integration tests.",
+  "sqlglotVersion": "30.31.0",
+  "cases": [
+    {
+      "id": "postgres-to-bigquery-date-trunc",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT customer_id, DATE_TRUNC('month', order_date) AS order_month, COUNT(*) AS total_orders FROM orders WHERE order_date >= CURRENT_DATE - INTERVAL '6 months' GROUP BY 1, 2 ORDER BY 2 DESC;",
+      "status": "warning",
+      "convertedContains": ["TIMESTAMP_TRUNC(order_date, MONTH)", "INTERVAL '6' MONTH", "GROUP BY", "ORDER BY", "NULLS FIRST"],
+      "convertedNotContains": ["DATE_TRUNC('month'"],
+      "diagnosticCategories": ["date_time", "null_handling"],
+      "transformationCategories": ["date_time", "null_handling"],
+      "ruleIds": ["date-trunc-bigquery-argument-order", "interval-representation", "null-ordering"]
+    },
+    {
+      "id": "postgres-to-mysql-date-trunc",
+      "source": "postgres",
+      "target": "mysql",
+      "sql": "SELECT DATE_TRUNC('month', order_date) AS m FROM orders",
+      "status": "warning",
+      "convertedContains": ["TIMESTAMPDIFF", "DATE_ADD"],
+      "convertedNotContains": ["DATE_TRUNC('month'"],
+      "transformationCategories": ["date_time"],
+      "ruleIds": ["date-trunc-mysql-emulation"]
+    },
+    {
+      "id": "postgres-to-snowflake-date-trunc",
+      "source": "postgres",
+      "target": "snowflake",
+      "sql": "SELECT DATE_TRUNC('month', order_date) AS m FROM orders",
+      "status": "warning",
+      "convertedContains": ["DATE_TRUNC('MONTH', order_date)"],
+      "diagnosticCategories": ["date_time"]
+    },
+    {
+      "id": "postgres-to-tsql-pagination",
+      "source": "postgres",
+      "target": "tsql",
+      "sql": "SELECT * FROM orders ORDER BY created_at LIMIT 10 OFFSET 5",
+      "status": "warning",
+      "convertedContains": ["OFFSET 5 ROWS", "FETCH FIRST 10 ROWS ONLY"],
+      "convertedNotContains": ["LIMIT 10"],
+      "transformationCategories": ["pagination"],
+      "ruleIds": ["pagination-offset-fetch"]
+    },
+    {
+      "id": "postgres-to-tsql-top",
+      "source": "postgres",
+      "target": "tsql",
+      "sql": "SELECT * FROM orders LIMIT 10",
+      "status": "warning",
+      "convertedContains": ["SELECT TOP 10"],
+      "convertedNotContains": ["LIMIT 10"],
+      "transformationCategories": ["pagination"],
+      "ruleIds": ["pagination-limit-to-top"]
+    },
+    {
+      "id": "postgres-to-oracle-pagination",
+      "source": "postgres",
+      "target": "oracle",
+      "sql": "SELECT * FROM orders ORDER BY created_at LIMIT 10 OFFSET 5",
+      "status": "success",
+      "convertedContains": ["OFFSET 5 ROWS", "FETCH FIRST 10 ROWS ONLY"],
+      "convertedNotContains": ["LIMIT 10"],
+      "transformationCategories": ["pagination"]
+    },
+    {
+      "id": "postgres-to-trino-pagination-order",
+      "source": "postgres",
+      "target": "trino",
+      "sql": "SELECT * FROM orders ORDER BY created_at LIMIT 10 OFFSET 5",
+      "status": "success",
+      "convertedContains": ["OFFSET 5 LIMIT 10"],
+      "transformationCategories": ["pagination"],
+      "ruleIds": ["pagination-clause-order"]
+    },
+    {
+      "id": "postgres-to-tsql-interval-unsupported",
+      "source": "postgres",
+      "target": "tsql",
+      "sql": "SELECT order_date + INTERVAL '1 day' AS next_day FROM orders",
+      "status": "unsupported",
+      "convertedContains": ["INTERVAL"],
+      "diagnosticCategories": ["unsupported_syntax"],
+      "ruleIds": ["tsql-interval-unsupported"]
+    },
+    {
+      "id": "postgres-to-oracle-date-trunc-unsupported",
+      "source": "postgres",
+      "target": "oracle",
+      "sql": "SELECT DATE_TRUNC('month', order_date) AS m FROM orders",
+      "status": "unsupported",
+      "convertedContains": ["TIMESTAMP_TRUNC"],
+      "diagnosticCategories": ["unsupported_syntax"],
+      "ruleIds": ["oracle-timestamp-trunc"]
+    },
+    {
+      "id": "postgres-to-sqlite-date-trunc-unsupported",
+      "source": "postgres",
+      "target": "sqlite",
+      "sql": "SELECT DATE_TRUNC('month', order_date) AS m FROM orders",
+      "status": "unsupported",
+      "convertedContains": ["TIMESTAMP_TRUNC"],
+      "diagnosticCategories": ["unsupported_syntax"],
+      "ruleIds": ["sqlite-date-trunc"]
+    },
+    {
+      "id": "postgres-to-bigquery-serial-unsupported",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)",
+      "status": "unsupported",
+      "convertedContains": ["SERIAL", "STRING"],
+      "diagnosticCategories": ["data_types"],
+      "ruleIds": ["serial-type-unsupported"]
+    },
+    {
+      "id": "postgres-to-mysql-merge-unsupported",
+      "source": "postgres",
+      "target": "mysql",
+      "sql": "MERGE INTO target t USING source s ON t.id = s.id WHEN MATCHED THEN UPDATE SET t.value = s.value",
+      "status": "unsupported",
+      "convertedContains": ["MERGE INTO"],
+      "diagnosticCategories": ["merge"],
+      "ruleIds": ["merge-unsupported"]
+    },
+    {
+      "id": "mysql-to-postgres-basic",
+      "source": "mysql",
+      "target": "postgres",
+      "sql": "SELECT IFNULL(a, 0), `weird col` FROM `orders` LIMIT 5",
+      "status": "warning",
+      "convertedContains": ["COALESCE(a, 0)", "\"weird col\"", "LIMIT 5"],
+      "convertedNotContains": ["IFNULL", "`"],
+      "diagnosticCategories": ["identifier_quoting"]
+    },
+    {
+      "id": "tsql-to-postgres-basic",
+      "source": "tsql",
+      "target": "postgres",
+      "sql": "SELECT TOP 10 [name], ISNULL(x, 0) FROM [dbo].[users] ORDER BY [id]",
+      "status": "warning",
+      "convertedContains": ["COALESCE(x, 0)", "\"name\"", "LIMIT 10", "NULLS FIRST"],
+      "convertedNotContains": ["TOP 10", "[name]"],
+      "transformationCategories": ["pagination", "null_handling"],
+      "diagnosticCategories": ["identifier_quoting"]
+    },
+    {
+      "id": "snowflake-to-bigquery-basic",
+      "source": "snowflake",
+      "target": "bigquery",
+      "sql": "SELECT IFF(a > 0, 'yes', 'no') AS flag, DATEADD(day, 1, ts) AS next_day FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY ts) = 1",
+      "status": "warning",
+      "convertedContains": ["IF(a > 0", "DATE_ADD(ts", "QUALIFY", "NULLS LAST"],
+      "convertedNotContains": ["IFF("],
+      "transformationCategories": ["date_time", "null_handling"],
+      "diagnosticCategories": ["date_time", "window_functions"]
+    },
+    {
+      "id": "postgres-to-bigquery-json",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT payload->>'name' AS name FROM events",
+      "status": "warning",
+      "convertedContains": ["JSON_EXTRACT_SCALAR(payload, '$.name')"],
+      "diagnosticCategories": ["json"]
+    },
+    {
+      "id": "postgres-to-mysql-json",
+      "source": "postgres",
+      "target": "mysql",
+      "sql": "SELECT payload->>'name' AS name FROM events",
+      "status": "warning",
+      "convertedContains": ["->> '$.name'"],
+      "diagnosticCategories": ["json"]
+    },
+    {
+      "id": "postgres-to-bigquery-window-nulls",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created_at DESC) AS rn FROM events",
+      "status": "warning",
+      "convertedContains": ["ORDER BY created_at DESC NULLS FIRST"],
+      "transformationCategories": ["null_handling", "window_functions"],
+      "diagnosticCategories": ["null_handling", "window_functions"]
+    },
+    {
+      "id": "postgres-to-mysql-window-nulls",
+      "source": "postgres",
+      "target": "mysql",
+      "sql": "SELECT ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created_at DESC) AS rn FROM events",
+      "status": "warning",
+      "convertedContains": ["CASE WHEN created_at IS NULL THEN 1 ELSE 0 END DESC", "created_at DESC"],
+      "transformationCategories": ["null_handling", "window_functions"],
+      "diagnosticCategories": ["null_handling", "window_functions"]
+    },
+    {
+      "id": "postgres-to-tsql-recursive-cte",
+      "source": "postgres",
+      "target": "tsql",
+      "sql": "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT * FROM nums",
+      "status": "warning",
+      "convertedContains": ["WITH nums AS", "UNION ALL"],
+      "convertedNotContains": ["RECURSIVE"],
+      "diagnosticCategories": ["cte"]
+    },
+    {
+      "id": "postgres-to-bigquery-cte",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "WITH totals AS (SELECT customer_id, COUNT(*) AS n FROM orders GROUP BY customer_id) SELECT * FROM totals WHERE n > 10",
+      "status": "success",
+      "convertedContains": ["WITH totals AS", "COUNT(*)", "GROUP BY customer_id"],
+      "diagnosticCategories": []
+    },
+    {
+      "id": "postgres-to-bigquery-types",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT CAST(id AS INTEGER), CAST(name AS TEXT), CAST(ts AS TIMESTAMP WITH TIME ZONE) FROM users",
+      "status": "warning",
+      "convertedContains": ["CAST(id AS INT64)", "CAST(name AS STRING)"],
+      "diagnosticCategories": ["data_types"]
+    },
+    {
+      "id": "postgres-to-duckdb-basic",
+      "source": "postgres",
+      "target": "duckdb",
+      "sql": "SELECT id, name FROM users WHERE active = TRUE ORDER BY id LIMIT 3",
+      "status": "success",
+      "convertedContains": ["SELECT id, name", "ORDER BY id", "LIMIT 3"]
+    },
+    {
+      "id": "postgres-to-spark-basic",
+      "source": "postgres",
+      "target": "spark",
+      "sql": "SELECT id, name FROM users WHERE active = TRUE ORDER BY id LIMIT 3",
+      "status": "warning",
+      "convertedContains": ["SELECT id, name", "ORDER BY id", "LIMIT 3"],
+      "diagnosticCategories": ["null_handling"],
+      "transformationCategories": ["null_handling"]
+    },
+    {
+      "id": "postgres-to-bigquery-array",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT ARRAY[1, 2, 3] AS ids",
+      "status": "warning",
+      "convertedContains": ["[1, 2, 3]"],
+      "diagnosticCategories": ["arrays"]
+    },
+    {
+      "id": "postgres-to-bigquery-dateadd-unsupported",
+      "source": "postgres",
+      "target": "bigquery",
+      "sql": "SELECT DATE_ADD(order_date, INTERVAL 1 DAY) FROM orders",
+      "status": "unsupported",
+      "convertedContains": ["INTERVAL"],
+      "diagnosticCategories": ["unsupported_syntax", "date_time"],
+      "ruleIds": ["nested-interval"]
+    },
+    {
+      "id": "postgres-multi-statement-to-mysql",
+      "source": "postgres",
+      "target": "mysql",
+      "sql": "SELECT 1; SELECT * FROM users LIMIT 2;",
+      "status": "warning",
+      "convertedContains": ["SELECT 1;", "SELECT * FROM users LIMIT 2;"],
+      "diagnosticCategories": ["pagination"],
+      "minStatements": 2
+    },
+    {
+      "id": "postgres-same-dialect-qualify-rewrite",
+      "source": "postgres",
+      "target": "postgres",
+      "sql": "SELECT * FROM t QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1",
+      "status": "warning",
+      "convertedContains": ["ROW_NUMBER()", "WHERE _w = 1"],
+      "diagnosticCategories": ["syntax"],
+      "ruleIds": ["same-dialect-rewrite"]
+    },
+    {
+      "id": "postgres-same-dialect-simple",
+      "source": "postgres",
+      "target": "postgres",
+      "sql": "SELECT id, name FROM users WHERE active = TRUE",
+      "status": "success",
+      "convertedContains": ["SELECT id, name", "WHERE active = TRUE"],
+      "diagnosticCategories": []
+    }
+  ]
+}
