@@ -1,0 +1,12 @@
+-- Manual test 03: Ambiguous auto-detection
+-- Action: Convert Entire File
+-- Source: auto
+-- Target: postgres
+--
+-- Expect:
+--   SQL Glyph must NOT silently pick a dialect.
+--   LIMIT is shared by postgres, mysql, sqlite, and duckdb, so detection
+--   returns low confidence with no recommendation.
+--   A prompt asks you to choose the source dialect (or confirm one).
+--   Cancelling the prompt must leave the document untouched.
+SELECT id, name FROM customers LIMIT 5;

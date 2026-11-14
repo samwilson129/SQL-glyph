@@ -1,0 +1,15 @@
+-- Manual test 06: Parse error handling
+-- Action: Convert Entire File
+-- Source: postgres
+-- Target: mysql
+--
+-- Expect:
+--   Status: Unsupported / error
+--   Message: parse error at line 1, column 17 ("Expected table name ...")
+--   The document is not modified and the engine stays alive.
+--   Immediately convert 01-basic.sql afterward to prove the process recovered.
+--
+-- Known polish issue: the message includes a raw SQLGlot token repr
+-- ("<Token token_type: TokenType.WHERE, text: WHERE, ...>") that leaks
+-- internal details to the user.
+SELECT FROM WHERE;
