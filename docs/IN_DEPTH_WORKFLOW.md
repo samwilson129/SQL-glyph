@@ -1,15 +1,13 @@
 # SQL Glyph: In-Depth Pipeline Workflow
 
-![SQL Glyph cat logo](./assets/sql-glyph-icon.png)
-
 This guide follows a conversion from the VS Code command to the Python engine
 and back. It names the functions, shows the data shapes, and states the limits
 that shape the result. It is the code-level companion to
 [HIGH_LEVEL_WORKFLOW.md](./HIGH_LEVEL_WORKFLOW.md).
 
-All paths are relative to the repository root. Code snippets illustrate the
-current `0.2.0` implementation; function and file names are the stable anchors
-when implementation details evolve.
+All paths are relative to the repository root. Line references are for the
+`0.1.0` code and may drift as the code evolves; the function and file names are
+the stable anchors.
 
 ---
 
@@ -1150,8 +1148,8 @@ const outcome: ConversionOutcome = {
 this.store.setConversion(outcome);
 ```
 
-`SessionStore` (`src/state/sessionStore.ts`) stores the last conversion and the
-in-memory AST and fires `'conversion'` or `'ast'`. Views subscribe and repost state.
+`SessionStore` (`src/state/sessionStore.ts`) stores the last conversion and AST
+and fires `'conversion'` or `'ast'`. Views subscribe and repost state.
 
 When a `vscode.Memento` is supplied (the extension passes
 `context.workspaceState`), `setConversion()` also persists a versioned snapshot:
@@ -1423,9 +1421,6 @@ npm run test:integration
 npm run typecheck
 ```
 
-GitHub Actions runs type checking, all test suites, coverage, and VSIX packaging
-for pushes to `main`, pull requests, and manual dispatches (`.github/workflows/ci.yml`).
-
 The Python suite can also run directly:
 
 ```bash
@@ -1488,7 +1483,7 @@ Entry points for exploring the implementation:
 - `src/services/diagnosticService.ts` — Problems panel publishing.
 - `src/services/previewProvider.ts` — in-memory previews and native diff.
 - `src/services/conversionCache.ts` — in-memory conversion cache.
-- `src/state/sessionStore.ts` — in-memory conversion/AST state, events, conversion-only persistence.
+- `src/state/sessionStore.ts` — last conversion/AST state, events, persistence.
 - `src/providers/codeLensProvider.ts` — top-of-file CodeLens actions.
 - `src/providers/codeActionProvider.ts` — Quick Fix and refactor actions.
 - `src/engine/engineManager.ts` — readiness, health, restart.

@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="media/icons/icon.png" alt="SQL Glyph cat logo" width="96" height="96">
-</p>
-
 # SQL Glyph
 
 **Convert, format, and inspect SQL across 16 dialects — locally.**
@@ -159,7 +155,7 @@ If a conversion matters, review the analysis panel and test the generated SQL ag
 ## Development
 
 ```bash
-npm ci
+npm install
 npm run compile        # typecheck + esbuild bundle
 npm test               # Python + unit + real-engine integration tests
 npm run test:coverage  # coverage for both layers
@@ -184,10 +180,6 @@ Open **Show Conversion Analysis**, read the error diagnostics, and review the ge
 
 **Setup cannot reach PyPI.**
 Configure your normal proxy environment variables or point `sqlGlyph.pythonPath` at an interpreter where SQLGlot 30.31.0 is already installed.
-
-## Contributing and security
-
-See [CONTRIBUTING.md](https://github.com/samwilson129/SQL-glyph/blob/main/CONTRIBUTING.md) for development and pull request guidance. Report security issues privately as described in [SECURITY.md](https://github.com/samwilson129/SQL-glyph/blob/main/SECURITY.md).
 
 ## License
 

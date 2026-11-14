@@ -18,11 +18,3 @@ tsconfig.json
 esbuild.mjs
 vitest.config.ts
 coverage/**
-.coverage
-.coveragerc
-.env*
-**/.env*
-.github/**
-.venv/**
-CONTRIBUTING.md
-SECURITY.md
