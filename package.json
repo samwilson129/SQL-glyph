@@ -5,6 +5,14 @@
   "version": "0.1.0",
   "publisher": "sqlglyph",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samwilson129/SQL-glyph.git"
+  },
+  "homepage": "https://github.com/samwilson129/SQL-glyph#readme",
+  "bugs": {
+    "url": "https://github.com/samwilson129/SQL-glyph/issues"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -329,8 +337,8 @@
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
     "test": "npm run test:python && npm run test:unit && npm run test:integration",
-    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
-    "package:vsix": "npm run compile && vsce package --no-dependencies --allow-missing-repository -o sql-glyph-0.1.0.vsix"
+    "package": "npm run compile && vsce package --no-dependencies",
+    "package:vsix": "npm run compile && vsce package --no-dependencies -o sql-glyph-0.1.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
