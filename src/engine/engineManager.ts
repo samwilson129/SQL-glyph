@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { EngineAction, EngineHealth, EngineResponse, HealthPayload } from '../types/protocol';
 import { EngineUnavailableError } from './errors';
-import { PythonBridge } from './pythonBridge';
+import { PythonBridge, type BridgeRequestOptions } from './pythonBridge';
 import { PythonEnvironment } from './pythonEnvironment';
 import type { PythonResolution } from './pythonDiscovery';
 
@@ -71,10 +71,10 @@ export class EngineManager implements vscode.Disposable {
   async request<T>(
     action: EngineAction,
     payload: Record<string, unknown> = {},
-    timeoutMs?: number
+    options: number | BridgeRequestOptions = {}
   ): Promise<EngineResponse<T>> {
     const bridge = await this.getBridge();
-    return bridge.request<T>(action, payload, timeoutMs);
+    return bridge.request<T>(action, payload, options);
   }
 
   async ensureReady(interactive: boolean): Promise<boolean> {

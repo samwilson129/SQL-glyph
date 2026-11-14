@@ -11,7 +11,13 @@
     sqlite: 'SQLite',
     duckdb: 'DuckDB',
     spark: 'Spark SQL',
-    trino: 'Trino'
+    trino: 'Trino',
+    redshift: 'Amazon Redshift',
+    clickhouse: 'ClickHouse',
+    databricks: 'Databricks SQL',
+    hive: 'Apache Hive',
+    presto: 'Presto',
+    teradata: 'Teradata'
   };
 
   function post(type, data) {

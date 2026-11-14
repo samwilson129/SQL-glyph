@@ -31,6 +31,51 @@ export enum ProgressLocation {
   Notification = 15
 }
 
+export class CodeActionKind {
+  static readonly Empty = new CodeActionKind('');
+  static readonly QuickFix = new CodeActionKind('quickfix');
+  static readonly Refactor = new CodeActionKind('refactor');
+  static readonly RefactorRewrite = new CodeActionKind('refactor.rewrite');
+  static readonly Source = new CodeActionKind('source');
+
+  constructor(public readonly value: string) {}
+
+  append(part: string): CodeActionKind {
+    return new CodeActionKind(this.value ? `${this.value}.${part}` : part);
+  }
+
+  contains(other: CodeActionKind): boolean {
+    return this.value === other.value || other.value.startsWith(`${this.value}.`);
+  }
+}
+
+export class CodeAction {
+  title: string;
+  kind?: CodeActionKind;
+  command?: { command: string; title: string; arguments?: unknown[] };
+  diagnostics?: Diagnostic[];
+  isPreferred?: boolean;
+
+  constructor(title: string, kind?: CodeActionKind) {
+    this.title = title;
+    this.kind = kind;
+  }
+}
+
+export class CodeLens {
+  constructor(
+    public range: Range,
+    public command?: { title: string; command: string; arguments?: unknown[] }
+  ) {}
+}
+
+export interface Memento {
+  keys(): readonly string[];
+  get<T>(key: string): T | undefined;
+  update(key: string, value: unknown): Thenable<void>;
+  setKeysForSync?(keys: readonly string[]): void;
+}
+
 export class Position {
   constructor(
     public line: number,
@@ -55,6 +100,12 @@ export class Range {
       this.start = startLineOrPosition;
       this.end = startCharacterOrPosition as Position;
     }
+  }
+
+  get isEmpty(): boolean {
+    return (
+      this.start.line === this.end.line && this.start.character === this.end.character
+    );
   }
 }
 
@@ -187,6 +238,9 @@ export const workspace: any = {
     writeFile: async () => undefined
   },
   onDidChangeConfiguration: () => ({ dispose: () => undefined }),
+  onDidChangeTextDocument: () => ({ dispose: () => undefined }),
+  onDidSaveTextDocument: () => ({ dispose: () => undefined }),
+  onDidOpenTextDocument: () => ({ dispose: () => undefined }),
   openTextDocument: async (uri: Uri) => ({
     uri,
     fileName: uri.fsPath,
@@ -225,10 +279,29 @@ export const window: any = {
   showOpenDialog: async () => undefined,
   showSaveDialog: async () => undefined,
   showTextDocument: async () => undefined,
-  withProgress: async (_options: unknown, task: (progress: any) => unknown) =>
-    task({ report: () => undefined }),
+  withProgress: async (
+    _options: unknown,
+    task: (progress: any, token: any) => unknown
+  ) =>
+    task({ report: () => undefined }, {
+      isCancellationRequested: false,
+      onCancellationRequested: () => ({ dispose: () => undefined })
+    }),
   registerWebviewViewProvider: () => ({ dispose: () => undefined }),
-  onDidChangeActiveTextEditor: () => ({ dispose: () => undefined })
+  onDidChangeActiveTextEditor: () => ({ dispose: () => undefined }),
+  createWebviewPanel: () => ({
+    webview: {
+      cspSource: 'vscode-webview://test',
+      html: '',
+      asWebviewUri: (uri: Uri) => uri,
+      onDidReceiveMessage: () => ({ dispose: () => undefined }),
+      postMessage: async () => true
+    },
+    iconPath: undefined,
+    onDidDispose: () => ({ dispose: () => undefined }),
+    reveal: () => undefined,
+    dispose: () => undefined
+  })
 };
 
 export const commands: any = {
@@ -238,7 +311,9 @@ export const commands: any = {
 
 export const languages: any = {
   createDiagnosticCollection: (name: string) => new FakeDiagnosticCollection(name),
-  setTextDocumentLanguage: async (document: unknown) => document
+  setTextDocumentLanguage: async (document: unknown) => document,
+  registerCodeLensProvider: () => ({ dispose: () => undefined }),
+  registerCodeActionsProvider: () => ({ dispose: () => undefined })
 };
 
 export const env: any = {

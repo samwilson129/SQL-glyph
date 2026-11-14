@@ -17,7 +17,13 @@ export type BridgeErrorCode =
   | 'ENGINE_STOPPED'
   | 'TIMEOUT'
   | 'PROTOCOL_ERROR'
-  | 'DISPOSED';
+  | 'DISPOSED'
+  | 'ABORTED';
+
+export interface BridgeRequestOptions {
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
 
 export class BridgeError extends Error {
   public readonly code: BridgeErrorCode;
@@ -50,6 +56,8 @@ interface QueuedRequest {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
   readonly enqueuedAt: number;
+  readonly signal?: AbortSignal;
+  cleanup?: () => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -176,11 +184,19 @@ export class PythonBridge {
   request<T>(
     action: EngineAction,
     payload: Record<string, unknown> = {},
-    timeoutMs = this.timeoutMs
+    options: number | BridgeRequestOptions = {}
   ): Promise<EngineResponse<T>> {
     if (this.disposed) {
       return Promise.reject(
         new BridgeError('DISPOSED', 'The local engine client has been disposed.')
+      );
+    }
+
+    const timeoutMs = typeof options === 'number' ? options : options.timeoutMs ?? this.timeoutMs;
+    const signal = typeof options === 'number' ? undefined : options.signal;
+    if (signal?.aborted) {
+      return Promise.reject(
+        new BridgeError('ABORTED', 'The local engine request was cancelled.')
       );
     }
 
@@ -190,6 +206,11 @@ export class PythonBridge {
       const timer = setTimeout(() => this.handleTimeout(id), Math.max(1, timeoutMs));
       timer.unref?.();
 
+      const onAbort = (): void => this.handleAbort(id);
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
       this.queue.push({
         id,
         action,
@@ -197,7 +218,9 @@ export class PythonBridge {
         resolve: resolve as (response: EngineResponse<unknown>) => void,
         reject,
         timer,
-        enqueuedAt: Date.now()
+        enqueuedAt: Date.now(),
+        signal,
+        cleanup: signal ? () => signal.removeEventListener('abort', onAbort) : undefined
       });
 
       void this.ensureStarted()
@@ -312,7 +335,7 @@ export class PythonBridge {
       if (this.active && id === this.active.id) {
         const request = this.active;
         this.active = undefined;
-        clearTimeout(request.timer);
+        this.finish(request);
         request.resolve(response);
         this.pump();
         continue;
@@ -322,7 +345,7 @@ export class PythonBridge {
         const index = this.queue.findIndex((item) => item.id === id);
         if (index >= 0) {
           const [request] = this.queue.splice(index, 1);
-          clearTimeout(request.timer);
+          this.finish(request);
           request.resolve(response);
           continue;
         }
@@ -374,11 +397,43 @@ export class PythonBridge {
     }
   }
 
+  private handleAbort(id: string): void {
+    const index = this.queue.findIndex((item) => item.id === id);
+    if (index >= 0) {
+      const [request] = this.queue.splice(index, 1);
+      this.finish(request);
+      request.reject(
+        new BridgeError('ABORTED', 'The local engine request was cancelled.')
+      );
+      return;
+    }
+
+    if (this.active?.id === id) {
+      const request = this.active;
+      this.active = undefined;
+      this.finish(request);
+      request.reject(
+        new BridgeError(
+          'ABORTED',
+          'The local engine request was cancelled. The engine process was restarted.'
+        )
+      );
+      this.logger?.('Engine request cancelled; terminating the engine process.');
+      this.terminate();
+    }
+  }
+
+  private finish(request: QueuedRequest): void {
+    clearTimeout(request.timer);
+    request.cleanup?.();
+    request.cleanup = undefined;
+  }
+
   private handleTimeout(id: string): void {
     const index = this.queue.findIndex((item) => item.id === id);
     if (index >= 0) {
       const [request] = this.queue.splice(index, 1);
-      clearTimeout(request.timer);
+      this.finish(request);
       request.reject(
         new BridgeError(
           'TIMEOUT',
@@ -391,7 +446,7 @@ export class PythonBridge {
     if (this.active?.id === id) {
       const request = this.active;
       this.active = undefined;
-      clearTimeout(request.timer);
+      this.finish(request);
       request.reject(
         new BridgeError(
           'TIMEOUT',
@@ -407,7 +462,7 @@ export class PythonBridge {
     const index = this.queue.findIndex((item) => item.id === id);
     if (index >= 0) {
       const [request] = this.queue.splice(index, 1);
-      clearTimeout(request.timer);
+      this.finish(request);
     }
   }
 
@@ -417,7 +472,7 @@ export class PythonBridge {
     }
     const request = this.active;
     this.active = undefined;
-    clearTimeout(request.timer);
+    this.finish(request);
     request.reject(error);
   }
 
@@ -425,7 +480,7 @@ export class PythonBridge {
     this.failActive(error);
     const queued = this.queue.splice(0);
     for (const request of queued) {
-      clearTimeout(request.timer);
+      this.finish(request);
       request.reject(error);
     }
   }

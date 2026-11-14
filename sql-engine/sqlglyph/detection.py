@@ -120,6 +120,40 @@ _MARKERS: List[Marker] = [
     Marker("trino", 3, r"\bWITH\s+ORDINALITY\b", "WITH ORDINALITY"),
     Marker("trino", 2, r"\bCARDINALITY\s*\(", "CARDINALITY() function"),
     Marker("trino", 2, r"\bTRY_CAST\s*\(", "TRY_CAST() function"),
+    # Amazon Redshift
+    Marker("redshift", 5, r"\bDISTKEY\b", "DISTKEY column attribute"),
+    Marker("redshift", 5, r"\bSORTKEY\b", "SORTKEY column attribute"),
+    Marker("redshift", 4, r"\bDISTSTYLE\b", "DISTSTYLE table attribute"),
+    Marker("redshift", 3, r"\bSUPER\b", "Redshift SUPER type"),
+    # ClickHouse
+    Marker("clickhouse", 5, r"\bPREWHERE\b", "PREWHERE clause"),
+    Marker("clickhouse", 5, r"\bENGINE\s*=\s*MergeTree", "MergeTree table engine"),
+    Marker("clickhouse", 4, r"\bLowCardinality\s*\(", "LowCardinality type"),
+    Marker("clickhouse", 3, r"\bDateTime64\b", "DateTime64 type"),
+    Marker("clickhouse", 3, r"\barrayJoin\s*\(", "arrayJoin() function"),
+    Marker("clickhouse", 2, r"\bFINAL\b", "FINAL modifier"),
+    # Databricks
+    Marker("databricks", 5, r"\bMERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", "schema evolution MERGE"),
+    Marker("databricks", 4, r"\bUSING\s+DELTA\b", "USING DELTA table"),
+    Marker("databricks", 4, r"\bZORDER\s+BY\b", "ZORDER BY clause"),
+    Marker("databricks", 3, r"\bOPTIMIZE\b", "OPTIMIZE statement"),
+    Marker("databricks", 2, r"\bTIMESTAMP_NTZ\b", "TIMESTAMP_NTZ type"),
+    # Apache Hive
+    Marker("hive", 5, r"\bROW\s+FORMAT\s+DELIMITED\b", "ROW FORMAT DELIMITED"),
+    Marker("hive", 5, r"\bSTORED\s+AS\b", "STORED AS clause"),
+    Marker("hive", 4, r"\bTBLPROPERTIES\b", "TBLPROPERTIES clause"),
+    Marker("hive", 3, r"\bPARTITIONED\s+BY\b", "PARTITIONED BY clause"),
+    Marker("hive", 3, r"\bSERDE\b", "SerDe clause"),
+    # Presto (overlaps Trino by design; confidence should stay conservative)
+    Marker("presto", 2, r"\bTRY\s*\(", "TRY() expression"),
+    Marker("presto", 2, r"\bARRAY_JOIN\s*\(", "ARRAY_JOIN() function"),
+    # Teradata
+    Marker("teradata", 5, r"\bMULTISET\b", "MULTISET table"),
+    Marker("teradata", 5, r"\bCOLLECT\s+STATISTICS\b", "COLLECT STATISTICS"),
+    Marker("teradata", 4, r"\bPRIMARY\s+INDEX\b", "PRIMARY INDEX"),
+    Marker("teradata", 4, r"\bSEL\b", "Teradata SEL abbreviation"),
+    Marker("teradata", 4, r"\bBTEQ\b", "BTEQ script"),
+    Marker("teradata", 3, r"\bSET\s+TABLE\b", "SET TABLE"),
     # Shared markers (low weight, create ambiguity on purpose)
     Marker("mysql", 2, r"`[^`]+`", "backtick-quoted identifier"),
     Marker("bigquery", 2, r"`[^`]+`", "backtick-quoted identifier"),
@@ -127,6 +161,7 @@ _MARKERS: List[Marker] = [
     Marker("bigquery", 2, r"\bQUALIFY\b", "QUALIFY clause"),
     Marker("snowflake", 2, r"\bQUALIFY\b", "QUALIFY clause"),
     Marker("duckdb", 2, r"\bQUALIFY\b", "QUALIFY clause"),
+    Marker("teradata", 2, r"\bQUALIFY\b", "QUALIFY clause"),
     Marker("postgres", 1, r"\bDATE_TRUNC\s*\(\s*'", "DATE_TRUNC with quoted date part"),
     Marker("snowflake", 1, r"\bDATE_TRUNC\s*\(\s*'", "DATE_TRUNC with quoted date part"),
     Marker("duckdb", 1, r"\bDATE_TRUNC\s*\(\s*'", "DATE_TRUNC with quoted date part"),

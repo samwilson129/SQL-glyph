@@ -1,6 +1,8 @@
 import pytest
 
+from sqlglyph.dialect_registry import SUPPORTED_DIALECT_IDS
 from sqlglyph.errors import ParseFailedError, SqlTooLargeError
+from sqlglyph.parser import split_statement_chunks
 from sqlglyph.transpiler import format_sql, inspect_ast, parse_only, transpile
 
 
@@ -159,20 +161,66 @@ def test_ast_can_be_omitted():
 
 
 def test_all_supported_targets_generate_simple_query():
-    dialects = [
-        "postgres",
-        "mysql",
-        "tsql",
-        "snowflake",
-        "bigquery",
-        "oracle",
-        "sqlite",
-        "duckdb",
-        "spark",
-        "trino",
-    ]
+    dialects = list(SUPPORTED_DIALECT_IDS)
     for target in dialects:
         result = transpile("SELECT id, name FROM users WHERE active = TRUE", "postgres", target, pretty=False)
         assert result["success"] is True, target
         assert "users" in result["convertedSql"], target
         assert result["convertedSql"].upper().startswith("SELECT"), target
+
+
+def test_partial_transpile_keeps_successful_statements():
+    result = transpile(
+        "SELECT 1; SELECT * FROM WHERE; SELECT 3",
+        "postgres",
+        "bigquery",
+        pretty=False,
+    )
+    assert result["success"] is True
+    assert result["status"] == "unsupported"
+    assert result["convertedSql"] == "SELECT 1; SELECT 3"
+    assert result["metadata"]["partial"] is True
+    assert result["metadata"]["statementCount"] == 2
+    assert result["metadata"]["inputStatementCount"] == 3
+    assert len(result["statementErrors"]) == 1
+    error = result["statementErrors"][0]
+    assert error["index"] == 1
+    assert error["stage"] == "parse"
+    assert error["span"] is not None
+    assert any(item["ruleId"] == "statement-parse-error" for item in result["diagnostics"])
+
+
+def test_partial_parse_only_returns_statements_and_errors():
+    result = parse_only("SELECT 1; SELECT * FROM WHERE; SELECT 3", "postgres")
+    assert result["status"] == "unsupported"
+    assert [item["index"] for item in result["statements"]] == [0, 2]
+    assert [item["index"] for item in result["statementErrors"]] == [1]
+
+
+def test_single_statement_parse_failure_still_raises():
+    with pytest.raises(ParseFailedError):
+        transpile("SELECT * FROM WHERE", "postgres", "bigquery")
+
+
+def test_round_trip_verification_succeeds_for_portable_sql():
+    result = transpile("SELECT id, name FROM users", "postgres", "bigquery", pretty=False)
+    assert result["metadata"]["roundTripVerified"] is True
+    assert result["metadata"]["roundTripFailureCount"] == 0
+    assert result["statementErrors"] == []
+
+
+def test_split_statement_chunks_respects_strings_and_comments():
+    sql = "SELECT ';' AS semi; -- a; comment\nSELECT 2; /* block; */ SELECT 3"
+    chunks = split_statement_chunks(sql)
+    assert [chunk.strip() for _, chunk in chunks] == [
+        "SELECT ';' AS semi",
+        "-- a; comment\nSELECT 2",
+        "/* block; */ SELECT 3",
+    ]
+
+
+def test_split_statement_chunks_handles_dollar_quotes():
+    sql = "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql; SELECT 2"
+    chunks = split_statement_chunks(sql)
+    assert len(chunks) == 2
+    assert "SELECT 1;" in chunks[0][1]

@@ -71,4 +71,57 @@ describe('SessionStore', () => {
     expect(changes).toHaveLength(6);
     store.dispose();
   });
+
+  it('persists and restores the last conversion through a memento', () => {
+    const values = new Map<string, unknown>();
+    const memento = {
+      keys: () => [...values.keys()],
+      get: <T>(key: string) => values.get(key) as T | undefined,
+      update: async (key: string, value: unknown) => {
+        if (value === undefined) {
+          values.delete(key);
+        } else {
+          values.set(key, value);
+        }
+      }
+    };
+
+    const first = new SessionStore(memento);
+    first.setConversion(conversion);
+    first.dispose();
+
+    const restored = new SessionStore(memento);
+    expect(restored.restore()).toBe(true);
+    expect(restored.conversion?.fileName).toBe('query.sql');
+    expect(restored.conversion?.documentUri.toString()).toBe(uri.toString());
+    expect(restored.conversion?.source).toBe('postgres');
+    expect(restored.ast).toBeUndefined();
+    restored.dispose();
+  });
+
+  it('ignores invalid persisted state and clears it', () => {
+    const values = new Map<string, unknown>([['sqlGlyph.lastConversion.v1', { version: 1 }]]);
+    const memento = {
+      keys: () => [...values.keys()],
+      get: <T>(key: string) => values.get(key) as T | undefined,
+      update: async (key: string, value: unknown) => {
+        if (value === undefined) {
+          values.delete(key);
+        } else {
+          values.set(key, value);
+        }
+      }
+    };
+
+    const store = new SessionStore(memento);
+    expect(store.restore()).toBe(false);
+    expect(store.conversion).toBeUndefined();
+    store.dispose();
+  });
+
+  it('restore is a no-op without a memento', () => {
+    const store = new SessionStore();
+    expect(store.restore()).toBe(false);
+    store.dispose();
+  });
 });

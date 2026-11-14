@@ -17,7 +17,13 @@ export const DIALECT_IDS = [
   'sqlite',
   'duckdb',
   'spark',
-  'trino'
+  'trino',
+  'redshift',
+  'clickhouse',
+  'databricks',
+  'hive',
+  'presto',
+  'teradata'
 ] as const;
 
 export type DialectId = (typeof DIALECT_IDS)[number];
@@ -195,6 +201,90 @@ export const DIALECTS: readonly DialectInfo[] = [
     {
       foldsUnquotedIdentifiers: 'lower',
       supportsTryCast: true
+    }
+  ),
+  dialect(
+    'redshift',
+    'Amazon Redshift',
+    'Amazon Redshift SQL, including DISTKEY/SORTKEY, SUPER, and Redshift date functions.',
+    [
+      'Distribution and sort keys are Redshift-specific and are preserved when parsed.',
+      'SUPER and semi-structured functions may require target-specific rewrites.'
+    ],
+    {
+      foldsUnquotedIdentifiers: 'lower',
+      supportsTryCast: true
+    }
+  ),
+  dialect(
+    'clickhouse',
+    'ClickHouse',
+    'ClickHouse SQL, including PREWHERE, FINAL, MergeTree engines, and array functions.',
+    [
+      'Table engines and PREWHERE/FINAL clauses are ClickHouse-specific.',
+      'Some aggregate and array functions have no portable equivalent.'
+    ],
+    {
+      identifierQuote: '`',
+      supportsMerge: false,
+      supportsQualify: true
+    }
+  ),
+  dialect(
+    'databricks',
+    'Databricks SQL',
+    'Databricks SQL, including Delta Lake syntax, QUALIFY, and Unity Catalog names.',
+    [
+      'Delta Lake options and Unity Catalog paths are environment-specific.',
+      'Databricks extends Spark SQL with QUALIFY and additional functions.'
+    ],
+    {
+      identifierQuote: '`',
+      supportsQualify: true,
+      supportsTryCast: true
+    }
+  ),
+  dialect(
+    'hive',
+    'Apache Hive',
+    'Apache Hive SQL, including LATERAL VIEW, ROW FORMAT, STORED AS, and partitions.',
+    [
+      'Storage formats, SerDes, and table properties are Hive-specific.',
+      'Hive date and string functions may differ from Spark SQL output.'
+    ],
+    {
+      identifierQuote: '`',
+      foldsUnquotedIdentifiers: 'lower',
+      supportsNullsOrdering: false,
+      supportsMerge: false,
+      supportsIntervalLiteral: false
+    }
+  ),
+  dialect(
+    'presto',
+    'Presto',
+    'Presto SQL, including ARRAY/MAP types, TRY expressions, and ANSI joins.',
+    [
+      'Presto and Trino share much syntax but differ in functions and MERGE support.',
+      'Review catalog-qualified names and connector-specific functions.'
+    ],
+    {
+      foldsUnquotedIdentifiers: 'lower',
+      supportsMerge: false,
+      supportsTryCast: true
+    }
+  ),
+  dialect(
+    'teradata',
+    'Teradata',
+    'Teradata SQL, including QUALIFY, MULTISET tables, and Teradata date functions.',
+    [
+      'MULTISET, PRIMARY INDEX, and COLLECT STATISTICS are Teradata-specific.',
+      'Teradata supports QUALIFY and TOP but not all ANSI pagination forms.'
+    ],
+    {
+      foldsUnquotedIdentifiers: 'upper',
+      supportsQualify: true
     }
   )
 ];

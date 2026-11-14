@@ -14,8 +14,10 @@ from .explanations import collect_transformations
 from .parser import (
     DEFAULT_MAX_BYTES,
     ParseOutcome,
+    StatementError,
     capture_sqlglot_warnings,
     parse_sql,
+    parse_sql_partial,
     statement_sql,
     statement_type,
 )
@@ -23,10 +25,11 @@ from .positions import PositionMapper
 
 try:
     import sqlglot
-    from sqlglot.errors import ParseError, UnsupportedError
+    from sqlglot.errors import ParseError, TokenError, UnsupportedError
 except Exception:  # pragma: no cover
     sqlglot = None  # type: ignore[assignment]
     ParseError = Exception  # type: ignore[assignment,misc]
+    TokenError = Exception  # type: ignore[assignment,misc]
     UnsupportedError = Exception  # type: ignore[assignment,misc]
 
 
@@ -40,34 +43,116 @@ def _join_statements(generated: List[str], original: str, pretty: bool) -> str:
 
 def _generate_statements(
     statements: List[Any],
+    indices: List[int],
     target: str,
     pretty: bool,
-) -> List[str]:
-    generated: List[str] = []
-    for index, statement in enumerate(statements):
+    mapper: PositionMapper,
+) -> Tuple[List[Tuple[int, Any, str]], List[StatementError]]:
+    """Generate each statement independently and keep successful output.
+
+    A generation failure becomes a per-statement error instead of discarding
+    the statements that did convert.  The caller still raises when *every*
+    statement fails.
+    """
+
+    generated: List[Tuple[int, Any, str]] = []
+    errors: List[StatementError] = []
+    for position, statement in enumerate(statements):
+        index = indices[position] if position < len(indices) else position
         try:
-            generated.append(statement.sql(dialect=target, pretty=pretty))
+            sql = statement.sql(dialect=target, pretty=pretty)
+            generated.append((index, statement, sql))
         except (UnsupportedError, ParseError) as exc:
-            raise GenerationFailedError(
-                "SQLGlot could not generate statement {} for dialect '{}': {}".format(
-                    index + 1, target, _safe_exception_message(exc)
-                ),
-                details=[
-                    {
-                        "statementIndex": index,
-                        "targetDialect": target,
-                        "description": _safe_exception_message(exc),
-                    }
-                ],
-            ) from exc
+            errors.append(
+                StatementError(
+                    index=index,
+                    stage="generate",
+                    message="SQLGlot could not generate statement {} for dialect '{}': {}".format(
+                        index + 1, target, _safe_exception_message(exc)
+                    ),
+                    detail="This statement was left out of the converted output. The remaining statements were converted independently.",
+                    span=_statement_span(statement, mapper),
+                )
+            )
         except Exception as exc:  # pragma: no cover - defensive boundary
-            raise GenerationFailedError(
-                "The target generator failed for statement {} ({}).".format(
-                    index + 1, type(exc).__name__
-                ),
-                details=[{"statementIndex": index, "targetDialect": target}],
-            ) from exc
-    return generated
+            errors.append(
+                StatementError(
+                    index=index,
+                    stage="generate",
+                    message="The target generator failed for statement {} ({}).".format(
+                        index + 1, type(exc).__name__
+                    ),
+                    detail="This statement was left out of the converted output.",
+                    span=_statement_span(statement, mapper),
+                )
+            )
+    return generated, errors
+
+
+def _verify_round_trip(
+    generated: List[Tuple[int, Any, str]],
+    target: str,
+) -> List[StatementError]:
+    """Parse generated SQL back with the target grammar.
+
+    A failure is reported as a per-statement error diagnostic.  This is a
+    syntactic check only; it does not prove semantic equivalence.
+    """
+
+    if sqlglot is None:
+        return []
+    errors: List[StatementError] = []
+    for index, _statement, generated_sql in generated:
+        if not generated_sql.strip():
+            continue
+        try:
+            with capture_sqlglot_warnings():
+                reparsed = sqlglot.parse(generated_sql, read=target)
+            if not any(item is not None for item in reparsed):
+                raise ParseError("The target grammar produced an empty parse tree.")
+        except (ParseError, TokenError) as exc:
+            errors.append(
+                StatementError(
+                    index=index,
+                    stage="round-trip",
+                    message="The generated SQL for statement {} does not parse back with the {} grammar: {}".format(
+                        index + 1, target, _safe_exception_message(exc)
+                    ),
+                    detail="The converted statement was generated, but a round-trip parse check failed. Review it before use.",
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            errors.append(
+                StatementError(
+                    index=index,
+                    stage="round-trip",
+                    message="The round-trip parse check failed for statement {} ({}).".format(
+                        index + 1, type(exc).__name__
+                    ),
+                    detail="The converted statement was generated, but a round-trip parse check failed.",
+                )
+            )
+    return errors
+
+
+def _statement_error_diagnostic(error: StatementError) -> Dict[str, Any]:
+    category = "round_trip" if error.stage == "round-trip" else "syntax"
+    return {
+        "id": "se-{}".format(error.index + 1),
+        "severity": "error",
+        "category": category,
+        "message": error.message,
+        "detail": error.detail,
+        "nodeType": None,
+        "expression": error.highlight or None,
+        "span": error.span,
+        "line": error.line,
+        "col": error.col,
+        "confidence": "high",
+        "reviewRequired": True,
+        "ruleId": "statement-{}-error".format(error.stage),
+        "statementIndex": error.index,
+    }
 
 
 def _safe_exception_message(exc: Exception) -> str:
@@ -83,11 +168,25 @@ def _metadata(
     started: float,
     include_ast: bool,
     transformations_truncated: bool = False,
+    statement_count: Optional[int] = None,
+    input_statement_count: Optional[int] = None,
+    partial: bool = False,
+    round_trip_failure_count: int = 0,
+    statement_error_count: int = 0,
 ) -> Dict[str, Any]:
     return {
         "sourceDialect": source,
         "targetDialect": target,
-        "statementCount": outcome.statement_count,
+        "statementCount": outcome.statement_count if statement_count is None else statement_count,
+        "inputStatementCount": (
+            outcome.input_statement_count
+            if input_statement_count is None
+            else input_statement_count
+        ),
+        "partial": partial,
+        "statementErrorCount": statement_error_count,
+        "roundTripVerified": round_trip_failure_count == 0,
+        "roundTripFailureCount": round_trip_failure_count,
         "pretty": pretty,
         "elapsedMs": int((time.perf_counter() - started) * 1000),
         "sqlglotVersion": getattr(sqlglot, "__version__", "unknown") if sqlglot else "unknown",
@@ -126,27 +225,63 @@ def transpile(
     get_dialect(source)
     get_dialect(target)
 
-    outcome = parse_sql(sql, source, max_bytes=max_bytes)
+    outcome = parse_sql_partial(sql, source, max_bytes=max_bytes)
+    mapper = PositionMapper(sql)
+
     with capture_sqlglot_warnings() as generation_warnings:
-        generated = _generate_statements(outcome.statements, target, pretty)
+        generated_items, generation_errors = _generate_statements(
+            outcome.statements,
+            outcome.statement_indices,
+            target,
+            pretty,
+            mapper,
+        )
     engine_warnings = list(outcome.warnings)
     for warning in generation_warnings:
         if warning not in engine_warnings:
             engine_warnings.append(warning)
+
+    if not generated_items:
+        first = generation_errors[0] if generation_errors else None
+        message = (
+            first.message
+            if first is not None
+            else "SQLGlot could not generate any statement for dialect '{}'.".format(target)
+        )
+        raise GenerationFailedError(
+            message,
+            details=[
+                {
+                    "statementIndex": error.index,
+                    "targetDialect": target,
+                    "description": error.message,
+                }
+                for error in generation_errors[:10]
+            ],
+        )
+
+    successful_statements = [item[1] for item in generated_items]
+    generated = [item[2] for item in generated_items]
     converted = _join_statements(generated, sql, pretty)
 
+    round_trip_errors = _verify_round_trip(generated_items, target)
+    statement_errors = list(outcome.errors) + generation_errors + round_trip_errors
+
     diagnostics, status = build_diagnostics(
-        outcome.statements,
+        successful_statements,
         sql,
         converted,
         source,
         target,
         engine_warnings=engine_warnings,
     )
+    for error in statement_errors:
+        diagnostics.append(_statement_error_diagnostic(error))
+    if statement_errors:
+        status = "unsupported"
 
-    mapper = PositionMapper(sql)
     transformations, truncated = collect_transformations(
-        outcome.statements,
+        successful_statements,
         generated,
         source,
         target,
@@ -156,7 +291,7 @@ def transpile(
 
     ast = None
     if include_ast:
-        ast = serialize_ast(outcome.statements, source, sql)
+        ast = serialize_ast(successful_statements, source, sql)
 
     result: Dict[str, Any] = {
         "success": True,
@@ -167,6 +302,7 @@ def transpile(
         "convertedSql": converted,
         "diagnostics": diagnostics,
         "transformations": transformations,
+        "statementErrors": [error.to_dict() for error in statement_errors],
         "diff": line_diff(sql, converted),
         "metadata": _metadata(
             outcome,
@@ -176,6 +312,11 @@ def transpile(
             started,
             include_ast,
             transformations_truncated=truncated,
+            statement_count=len(successful_statements),
+            input_statement_count=len(outcome.statements) + len(outcome.errors),
+            partial=bool(statement_errors),
+            round_trip_failure_count=len(round_trip_errors),
+            statement_error_count=len(statement_errors),
         ),
     }
     if ast is not None:
@@ -192,26 +333,42 @@ def parse_only(
     started = time.perf_counter()
     dialect = normalize_dialect(dialect)
     get_dialect(dialect)
-    outcome = parse_sql(sql, dialect, max_bytes=max_bytes)
+    outcome = parse_sql_partial(sql, dialect, max_bytes=max_bytes)
     mapper = PositionMapper(sql)
     statements: List[Dict[str, Any]] = []
     for index, statement in enumerate(outcome.statements):
+        original_index = (
+            outcome.statement_indices[index]
+            if index < len(outcome.statement_indices)
+            else index
+        )
         statements.append(
             {
-                "index": index,
+                "index": original_index,
                 "type": statement_type(statement),
                 "sql": statement_sql(statement, dialect, pretty=False),
                 "span": _statement_span(statement, mapper),
             }
         )
+    diagnostics = [_statement_error_diagnostic(error) for error in outcome.errors]
     return {
         "success": True,
-        "status": "success",
+        "status": "unsupported" if diagnostics else "success",
         "sourceDialect": dialect,
         "originalSql": sql,
         "statements": statements,
-        "diagnostics": [],
-        "metadata": _metadata(outcome, dialect, dialect, False, started, False),
+        "diagnostics": diagnostics,
+        "statementErrors": [error.to_dict() for error in outcome.errors],
+        "metadata": _metadata(
+            outcome,
+            dialect,
+            dialect,
+            False,
+            started,
+            False,
+            partial=bool(outcome.errors),
+            statement_error_count=len(outcome.errors),
+        ),
     }
 
 

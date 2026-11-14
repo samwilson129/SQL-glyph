@@ -1,4 +1,5 @@
 import type { AstDocument, SourceSpan } from './ast';
+import type { StatementError } from './conversion';
 import type { DialectInfo } from './dialect';
 import type { EngineDiagnostic } from './diagnostics';
 
@@ -114,11 +115,12 @@ export interface ParseStatement {
 }
 
 export interface ParsePayload {
-  readonly status: 'success';
+  readonly status: 'success' | 'unsupported';
   readonly sourceDialect: string;
   readonly originalSql: string;
   readonly statements: readonly ParseStatement[];
   readonly diagnostics: readonly EngineDiagnostic[];
+  readonly statementErrors: readonly StatementError[];
   readonly metadata: Readonly<Record<string, unknown>>;
 }
 

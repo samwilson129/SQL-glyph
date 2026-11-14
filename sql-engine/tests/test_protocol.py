@@ -47,7 +47,7 @@ def test_multiple_requests_are_answered_in_order_with_clean_stdout():
     assert [item["action"] for item in responses] == ["ping", "list_dialects", "health", "transpile"]
     assert all(item["success"] is True for item in responses)
     assert responses[0]["pong"] is True
-    assert len(responses[1]["dialects"]) == 10
+    assert len(responses[1]["dialects"]) == 16
     assert responses[2]["health"]["ok"] is True
     assert responses[3]["convertedSql"] == "SELECT 1"
     assert responses[3]["metadata"]["executed"] is False

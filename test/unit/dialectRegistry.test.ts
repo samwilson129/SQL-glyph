@@ -12,12 +12,27 @@ import {
 } from '../../src/types/dialect';
 
 describe('dialect registry', () => {
-  it('contains exactly the ten supported dialects', () => {
-    expect(DIALECT_IDS).toHaveLength(10);
-    expect(new Set(DIALECT_IDS).size).toBe(10);
-    expect([...DIALECT_IDS].sort()).toEqual(
-      ['bigquery', 'duckdb', 'mysql', 'oracle', 'postgres', 'snowflake', 'spark', 'sqlite', 'trino', 'tsql']
-    );
+  it('contains exactly the sixteen supported dialects', () => {
+    expect(DIALECT_IDS).toHaveLength(16);
+    expect(new Set(DIALECT_IDS).size).toBe(16);
+    expect([...DIALECT_IDS].sort()).toEqual([
+      'bigquery',
+      'clickhouse',
+      'databricks',
+      'duckdb',
+      'hive',
+      'mysql',
+      'oracle',
+      'postgres',
+      'presto',
+      'redshift',
+      'snowflake',
+      'spark',
+      'sqlite',
+      'teradata',
+      'trino',
+      'tsql'
+    ]);
   });
 
   it('has display metadata for every dialect', () => {
@@ -37,6 +52,11 @@ describe('dialect registry', () => {
     expect(getDialect('bigquery')?.traits.supportsQualify).toBe(true);
     expect(getDialect('sqlite')?.traits.supportsIntervalLiteral).toBe(false);
     expect(getDialect('spark')?.traits.identifierQuote).toBe('`');
+    expect(getDialect('clickhouse')?.traits.identifierQuote).toBe('`');
+    expect(getDialect('databricks')?.traits.supportsQualify).toBe(true);
+    expect(getDialect('teradata')?.traits.foldsUnquotedIdentifiers).toBe('upper');
+    expect(getDialect('presto')?.traits.supportsMerge).toBe(false);
+    expect(getDialect('hive')?.traits.supportsIntervalLiteral).toBe(false);
   });
 
   it('validates dialect identifiers', () => {

@@ -240,6 +240,9 @@ export class ConversionViewProvider implements vscode.WebviewViewProvider, vscod
       styleUri: webview
         .asWebviewUri(vscode.Uri.joinPath(media, 'webview', 'app.css'))
         .toString(),
+      logoUri: webview
+        .asWebviewUri(vscode.Uri.joinPath(media, 'icons', 'icon.png'))
+        .toString(),
       bodyHtml: '<p class="empty">Loading SQL Glyph…</p>'
     });
   }

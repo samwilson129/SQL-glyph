@@ -1,8 +1,8 @@
 {
   "name": "sql-glyph",
   "displayName": "SQL Glyph",
-  "description": "Decipher. Transform. Transpile. AST-powered SQL dialect conversion, AST inspection, and transformation analysis. Local processing; no database connection and no query execution.",
-  "version": "0.1.0",
+  "description": "Convert, format, and inspect SQL across 16 dialects locally — no database connection or query execution.",
+  "version": "0.2.0",
   "publisher": "sqlglyph",
   "license": "MIT",
   "repository": {
@@ -34,7 +34,14 @@
     "duckdb",
     "spark",
     "trino",
+    "redshift",
+    "clickhouse",
+    "databricks",
+    "hive",
+    "presto",
+    "teradata",
     "transpile",
+    "formatter",
     "dialect",
     "ast",
     "sqlglot"
@@ -59,6 +66,8 @@
     "onLanguage:sql",
     "onCommand:sqlGlyph.convertSelection",
     "onCommand:sqlGlyph.convertDocument",
+    "onCommand:sqlGlyph.convertToTarget",
+    "onCommand:sqlGlyph.formatSql",
     "onCommand:sqlGlyph.inspectAst",
     "onCommand:sqlGlyph.compareDialects",
     "onCommand:sqlGlyph.showAnalysis",
@@ -83,6 +92,17 @@
         "category": "SQL Glyph"
       },
       {
+        "command": "sqlGlyph.formatSql",
+        "title": "SQL Glyph: Format SQL",
+        "category": "SQL Glyph",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "sqlGlyph.convertToTarget",
+        "title": "SQL Glyph: Convert to Target Dialect",
+        "category": "SQL Glyph"
+      },
+      {
         "command": "sqlGlyph.inspectAst",
         "title": "SQL Glyph: Inspect AST",
         "category": "SQL Glyph",
@@ -97,6 +117,16 @@
       {
         "command": "sqlGlyph.showAnalysis",
         "title": "SQL Glyph: Show Conversion Analysis",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.copyResult",
+        "title": "SQL Glyph: Copy Converted SQL",
+        "category": "SQL Glyph"
+      },
+      {
+        "command": "sqlGlyph.showDiff",
+        "title": "SQL Glyph: Show Conversion Diff",
         "category": "SQL Glyph"
       },
       {
@@ -153,19 +183,34 @@
           "group": "sqlglyph@2"
         },
         {
-          "command": "sqlGlyph.inspectAst",
+          "command": "sqlGlyph.formatSql",
           "when": "resourceLangId == sql",
           "group": "sqlglyph@3"
         },
         {
-          "command": "sqlGlyph.compareDialects",
+          "command": "sqlGlyph.inspectAst",
           "when": "resourceLangId == sql",
           "group": "sqlglyph@4"
         },
         {
-          "command": "sqlGlyph.showAnalysis",
+          "command": "sqlGlyph.compareDialects",
           "when": "resourceLangId == sql",
           "group": "sqlglyph@5"
+        },
+        {
+          "command": "sqlGlyph.showAnalysis",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@6"
+        },
+        {
+          "command": "sqlGlyph.copyResult",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@7"
+        },
+        {
+          "command": "sqlGlyph.showDiff",
+          "when": "resourceLangId == sql",
+          "group": "sqlglyph@8"
         }
       ],
       "commandPalette": [
@@ -175,6 +220,10 @@
         },
         {
           "command": "sqlGlyph.convertDocument",
+          "when": "editorLangId == sql"
+        },
+        {
+          "command": "sqlGlyph.formatSql",
           "when": "editorLangId == sql"
         },
         {
@@ -213,7 +262,7 @@
         {
           "id": "sqlGlyph",
           "title": "SQL Glyph",
-          "icon": "media/icons/sql-glyph.svg"
+          "icon": "media/icons/sql-glyph-activity.png"
         }
       ]
     },
@@ -254,7 +303,13 @@
             "sqlite",
             "duckdb",
             "spark",
-            "trino"
+            "trino",
+            "redshift",
+            "clickhouse",
+            "databricks",
+            "hive",
+            "presto",
+            "teradata"
           ],
           "enumDescriptions": [
             "Detect the source dialect heuristically and ask when uncertain.",
@@ -267,7 +322,13 @@
             "SQLite",
             "DuckDB",
             "Spark SQL",
-            "Trino"
+            "Trino",
+            "Amazon Redshift",
+            "ClickHouse",
+            "Databricks SQL",
+            "Apache Hive",
+            "Presto",
+            "Teradata"
           ],
           "description": "Default source dialect for new conversions."
         },
@@ -284,7 +345,13 @@
             "sqlite",
             "duckdb",
             "spark",
-            "trino"
+            "trino",
+            "redshift",
+            "clickhouse",
+            "databricks",
+            "hive",
+            "presto",
+            "teradata"
           ],
           "description": "Default target dialect for new conversions."
         },
@@ -324,6 +391,11 @@
             "Always ask the user to confirm the detected source dialect."
           ],
           "description": "Controls how source-dialect auto-detection is confirmed."
+        },
+        "sqlGlyph.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show SQL Glyph Convert and Format CodeLens actions at the top of SQL files."
         }
       }
     }
@@ -334,15 +406,18 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc -p ./ --noEmit",
     "test:python": "python -m pytest sql-engine/tests -c sql-engine/pytest.ini",
+    "test:python:coverage": "python -m pytest sql-engine/tests -c sql-engine/pytest.ini --cov=sql-engine/sqlglyph --cov-report=term-missing",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
+    "test:coverage": "npm run test:python:coverage && vitest run --coverage",
     "test": "npm run test:python && npm run test:unit && npm run test:integration",
     "package": "npm run compile && vsce package --no-dependencies",
-    "package:vsix": "npm run compile && vsce package --no-dependencies -o sql-glyph-0.1.0.vsix"
+    "package:vsix": "npm run compile && vsce package --no-dependencies -o sql-glyph-0.2.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
+    "@vitest/coverage-v8": "^2.1.0",
     "@vscode/vsce": "2.15.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0",

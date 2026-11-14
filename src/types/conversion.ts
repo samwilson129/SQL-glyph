@@ -1,3 +1,4 @@
+import type { SourceSpan } from './ast';
 import type { DialectId } from './dialect';
 import type { EngineDiagnostic, Transformation } from './diagnostics';
 import type { EngineSuccess } from './protocol';
@@ -20,10 +21,28 @@ export interface Diff {
   readonly truncated: boolean;
 }
 
+export interface StatementError {
+  readonly index: number;
+  readonly stage: 'parse' | 'generate' | 'round-trip' | string;
+  readonly message: string;
+  readonly detail?: string | null;
+  readonly span?: SourceSpan | null;
+  readonly line?: number | null;
+  readonly col?: number | null;
+  readonly startContext?: string;
+  readonly highlight?: string;
+  readonly endContext?: string;
+}
+
 export interface ConversionMetadata {
   readonly sourceDialect: string;
   readonly targetDialect: string;
   readonly statementCount: number;
+  readonly inputStatementCount: number;
+  readonly partial: boolean;
+  readonly statementErrorCount: number;
+  readonly roundTripVerified: boolean;
+  readonly roundTripFailureCount: number;
   readonly pretty: boolean;
   readonly elapsedMs: number;
   readonly sqlglotVersion: string;
@@ -46,6 +65,7 @@ export interface ConversionPayload {
   readonly convertedSql: string;
   readonly diagnostics: readonly EngineDiagnostic[];
   readonly transformations: readonly Transformation[];
+  readonly statementErrors: readonly StatementError[];
   readonly diff: Diff;
   readonly metadata: ConversionMetadata;
 }

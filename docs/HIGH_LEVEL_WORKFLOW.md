@@ -38,10 +38,10 @@ JSON on `stdin`/`stdout`.
 │                    ▼                              │                             │
 │              SessionStore ◄── results ◄───────────┘ stdout                     │
 │                    │                                                            │
-│        ┌───────────┼────────────┬──────────────┬───────────────┐               │
-│        ▼           ▼            ▼              ▼               ▼               │
-│   Conversion     AST         Analysis       Status bar     Problems            │
-│   sidebar        sidebar     panel          item           panel               │
+│        ┌───────────┼────────────┬──────────────┬───────────────┬────────────┐   │
+│        ▼           ▼            ▼              ▼               ▼            ▼   │
+│   Conversion     AST         Analysis       Status bar     Problems     CodeLens│
+│   sidebar        sidebar     panel          item           panel        / QuickFix│
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                      │ JSON Lines
@@ -79,7 +79,8 @@ flowchart LR
     I --> J[JSON Lines request over stdin]
     J --> K[Validate request and parse SQL with SQLGlot]
     K --> L[Generate SQL in target dialect]
-    L --> M[Analyze diagnostics, transformations, optional AST]
+    L --> R[Parse generated SQL back with the target grammar]
+    R --> M[Analyze diagnostics, transformations, optional AST]
     M --> N[Structured JSON response over stdout]
     N --> O[Show diff, diagnostics, explanations, metadata in VS Code]
     O --> P[User reviews, copies, saves, or explicitly replaces source]
@@ -123,6 +124,8 @@ sequenceDiagram
     SG-->>TR: AST statements
     TR->>SG: statement.sql(dialect=target)
     SG-->>TR: generated SQL
+    TR->>SG: parse(generated, read=target)  (round-trip check)
+    SG-->>TR: reparsed statements or error
     TR->>TR: diagnostics + transformations + diff (+ AST)
     TR-->>PY: result dict
     PY-->>PB: {"success":true, ...}
@@ -138,8 +141,10 @@ sequenceDiagram
 ### Stage 1 — User action
 
 A command starts the flow: **Convert Selected SQL**, **Convert Entire File**,
-**Compare Dialects**, or **Inspect AST**. Commands are thin. They delegate to a
-service and do not parse or rewrite SQL themselves.
+**Convert to Target Dialect**, **Format SQL**, **Compare Dialects**, or
+**Inspect AST**. CodeLens actions at the top of a SQL file and Quick Fix actions
+on SQL Glyph diagnostics invoke the same commands. Commands are thin. They
+delegate to a service and do not parse or rewrite SQL themselves.
 
 ### Stage 2 — Input collection and validation
 
@@ -176,19 +181,32 @@ confirms the venv path and `sqlglot==30.31.0` before `pip` runs.
 Inside Python, `transpile()` does one pass:
 
 1. **Parse** the source with the chosen dialect. Empty input, oversized input,
-   and parser errors become structured engine errors.
-2. **Generate** each statement in the target dialect.
-3. **Diagnose** compatibility risks from the source AST and the generated text.
-4. **Explain** structural rewrites by rendering nodes in both dialects.
-5. **Diff** the original and generated text line by line.
-6. Optionally **serialize** the AST into a bounded, frontend-safe tree.
+   and parser errors become structured engine errors. In a multi-statement file,
+   a failing statement becomes a per-statement error while the remaining
+   statements continue.
+2. **Generate** each statement in the target dialect. Generation failures are
+   also isolated per statement.
+3. **Verify** each generated statement by parsing it back with the target
+   grammar. A failure becomes a round-trip diagnostic.
+4. **Diagnose** compatibility risks from the source AST and the generated text.
+5. **Explain** structural rewrites by rendering nodes in both dialects.
+6. **Diff** the original and generated text line by line.
+7. Optionally **serialize** the AST into a bounded, frontend-safe tree.
+
+If every statement fails, the request returns the usual structured error
+envelope. If some succeed, the response contains the successful output, a
+`statementErrors` list, and an overall status of **Unsupported**.
 
 ### Stage 6 — Response and rendering
 
 The engine writes one compact JSON line. The bridge matches it to the request by
-id and resolves the promise. `ConversionService` stores the outcome, publishes
+id and resolves the promise. `ConversionService` checks a small in-memory cache
+for an identical SQL/dialect/version request, stores the outcome, publishes
 diagnostics to the Problems panel, updates the status bar, opens a native diff,
 and shows a notification.
+
+The last conversion is persisted in workspace state so reopening the workspace
+restores the analysis panel and review actions. The AST is not persisted.
 
 ### Stage 7 — Review and explicit mutation
 
@@ -196,6 +214,23 @@ Everything after the response is a review surface. Copy, open, save-as, and
 replace are separate actions. **Replace** re-reads the document, checks that the
 original text is still exactly what was converted, asks for modal confirmation,
 then applies a normal undoable edit.
+
+---
+
+## 3.1 Cross-cutting behavior
+
+- **Progress and cancellation.** Long conversions show a cancellable progress
+  notification. Because the bridge sends one request at a time, cancelling the
+  active request terminates the engine process; the next request starts a fresh
+  one.
+- **Caching.** Successful `transpile` and `format` results are cached in memory.
+  The key includes a SHA-256 of the SQL, both dialects, the pretty flag, the
+  action, and the SQLGlot version. Unsupported results are never cached.
+- **Persistence.** Only the conversion outcome is stored in `workspaceState`.
+  Restoring it does not bypass the replace guard, which still compares live
+  document text.
+- **Formatting.** Format uses the same engine path as conversion with the source
+  and target set to the same dialect.
 
 ---
 
@@ -209,9 +244,10 @@ then applies a normal undoable edit.
 | Python discovery | `src/engine/pythonDiscovery.ts` | Candidate interpreters, version probing |
 | Python setup | `src/engine/pythonEnvironment.ts` | Managed venv, pinned SQLGlot install, trust checks |
 | Transport | `src/engine/pythonBridge.ts`, `jsonLines.ts` | Spawn, JSONL framing, queue, timeouts, exit handling |
-| Services | `src/services/*.ts` | Conversion, AST, dialects, diagnostics, previews |
-| State | `src/state/sessionStore.ts` | Last conversion/AST and change events |
-| Views | `src/views/*.ts`, `src/webview/html.ts` | Sidebars, analysis panel, status bar, CSP |
+| Services | `src/services/*.ts` | Conversion, AST, dialects, diagnostics, previews, conversion cache |
+| State | `src/state/sessionStore.ts` | Last conversion/AST, change events, workspace-state persistence |
+| Providers | `src/providers/*.ts` | CodeLens shortcuts and Quick Fix actions |
+| Views | `src/views/*.ts`, `src/webview/html.ts` | Sidebars, analysis panel, status bar, CSP, shared logo header |
 | Types | `src/types/*.ts` | Protocol, dialect, AST, diagnostic, conversion shapes |
 | Engine entry | `sql-engine/main.py` | `sys.path` setup and protocol start |
 | Protocol | `sql-engine/sqlglyph/protocol.py` | Validation, dispatch, response envelope |
@@ -280,9 +316,11 @@ reason for a difference it does not recognize.
 | Python missing | Environment / engine manager | Mark `unconfigured`; offer setup when interactive |
 | SQLGlot missing | Health check | Mark `missing-dependency`; explicit setup only |
 | Invalid protocol payload | Python protocol layer | Structured `INVALID_REQUEST` / `UNKNOWN_ACTION` |
-| Parse failure | Parser | `PARSE_ERROR` with line/column/context |
-| Generation failure | Transpiler | `GENERATION_ERROR` with statement index |
+| Parse failure | Parser | `PARSE_ERROR` with line/column/context; per-statement errors when other statements parse |
+| Generation failure | Transpiler | `GENERATION_ERROR` with statement index; per-statement errors when other statements generate |
+| Round-trip failure | Transpiler | Error diagnostic; overall status `unsupported` |
 | Request timeout | Python bridge | Reject; an active-request timeout kills the process |
+| Cancellation | Progress token / bridge | `ABORTED`; an active request restarts the engine |
 | Process exit | Bridge / engine manager | Fail pending work; next request restarts |
 
 The extension's command guard catches anything that escapes, logs the stack to
@@ -307,6 +345,10 @@ the **SQL Glyph** output channel, and offers **Set Up Engine** or **Show Output*
   tables, variables, transactions, and DDL dependencies are not tracked.
 - **Bounded payloads.** Diagnostics, transformations, diff rows, AST nodes,
   depth, and snippet sizes all have explicit caps.
+- **Partial over all-or-nothing.** One bad statement does not discard the
+  statements that converted successfully.
+- **Syntax checked twice.** Generated SQL is parsed back with the target
+  grammar before it is presented as usable.
 
 ---
 

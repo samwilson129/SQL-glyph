@@ -202,6 +202,9 @@ export class AnalysisPanel implements vscode.Disposable {
       styleUri: webview
         .asWebviewUri(vscode.Uri.joinPath(media, 'webview', 'app.css'))
         .toString(),
+      logoUri: webview
+        .asWebviewUri(vscode.Uri.joinPath(media, 'icons', 'icon.png'))
+        .toString(),
       bodyHtml: '<p class="empty">Loading conversion analysis…</p>'
     });
   }

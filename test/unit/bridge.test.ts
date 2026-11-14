@@ -286,4 +286,54 @@ describe('PythonBridge', () => {
     await bridge.request('ping');
     await waitFor(() => stderr.includes('engine warning'));
   });
+
+  it('rejects a queued request when its signal aborts', async () => {
+    const { spawnFn, requests } = createFakeEngine({
+      onRequest: (request, child) => {
+        if (request.action === 'ping') {
+          setTimeout(() => respond(child, request, { pong: true }), 20);
+        }
+      }
+    });
+    const bridge = createBridge(spawnFn);
+    const controller = new AbortController();
+
+    const active = bridge.request('ping');
+    const queued = bridge.request('health', {}, { signal: controller.signal });
+    controller.abort();
+
+    await expect(queued).rejects.toMatchObject({ code: 'ABORTED' });
+    await expect(active).resolves.toMatchObject({ success: true });
+    expect(requests.filter((request) => request.action === 'health')).toHaveLength(0);
+  });
+
+  it('restarts the engine when an active request aborts', async () => {
+    const { spawnFn, children, requests } = createFakeEngine({
+      onRequest: () => {
+        // Deliberately never respond so the request stays active.
+      }
+    });
+    const bridge = createBridge(spawnFn);
+    const controller = new AbortController();
+
+    const pending = bridge.request('transpile', { sql: 'SELECT 1' }, {
+      signal: controller.signal
+    });
+    await waitFor(() => requests.length === 1);
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'ABORTED' });
+    expect(children[0].killed).toBe(true);
+  });
+
+  it('rejects immediately when the signal is already aborted', async () => {
+    const { spawnFn } = createFakeEngine();
+    const bridge = createBridge(spawnFn);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      bridge.request('ping', {}, { signal: controller.signal })
+    ).rejects.toMatchObject({ code: 'ABORTED' });
+  });
 });

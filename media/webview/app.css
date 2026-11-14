@@ -108,6 +108,38 @@ a {
   padding: 12px 14px 28px;
 }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+  background: var(--vscode-sideBar-background, transparent);
+}
+
+.app-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.app-brand-title {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.app-brand-sub {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .header {
   display: flex;
   align-items: baseline;

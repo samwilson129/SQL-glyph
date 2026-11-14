@@ -15,21 +15,24 @@ the stable anchors.
 
 | Constant | Value | Defined in |
 | --- | --- | --- |
-| Default SQL input limit | 2 MB | `sql-engine/sqlglyph/parser.py:24` |
-| Hard SQL input limit | 10 MB | `sql-engine/sqlglyph/parser.py:23`, `src/services/conversionService.ts:23` |
-| Maximum request line | 20 MB + 10,000 bytes | `sql-engine/sqlglyph/protocol.py:34` |
-| Default request timeout | 30,000 ms | `src/engine/pythonBridge.ts:55` |
-| Health-check timeout | 20,000 ms | `src/engine/engineManager.ts:147` |
-| Shutdown grace period | 1,500 ms | `src/engine/pythonBridge.ts:241-248` |
-| AST node cap | 5,000 | `sql-engine/sqlglyph/ast_serializer.py:296` |
-| AST depth cap | 120 | `sql-engine/sqlglyph/ast_serializer.py:297` |
-| AST snippet cap | 500 chars | `sql-engine/sqlglyph/ast_serializer.py:298` |
-| Diagnostics cap | 200 | `sql-engine/sqlglyph/diagnostics.py:27` |
-| Transformations cap | 120 | `sql-engine/sqlglyph/explanations.py:17` |
-| Diff row cap | 5,000 | `sql-engine/sqlglyph/diff.py:8` |
-| Pinned SQLGlot | 30.31.0 | `src/engine/pythonEnvironment.ts:16` |
-| Minimum Python | 3.9 | `src/engine/pythonDiscovery.ts:189-190` |
-| Protocol version | `1.0` | `sql-engine/sqlglyph/protocol.py:33` |
+| Default SQL input limit | 2 MB | `sql-engine/sqlglyph/parser.py` |
+| Hard SQL input limit | 10 MB | `sql-engine/sqlglyph/parser.py`, `src/services/conversionService.ts` |
+| Maximum request line | 20 MB + 10,000 bytes | `sql-engine/sqlglyph/protocol.py` |
+| Default request timeout | 30,000 ms | `src/engine/pythonBridge.ts` |
+| Health-check timeout | 20,000 ms | `src/engine/engineManager.ts` |
+| Shutdown grace period | 1,500 ms | `src/engine/pythonBridge.ts` |
+| AST node cap | 5,000 | `sql-engine/sqlglyph/ast_serializer.py` |
+| AST depth cap | 120 | `sql-engine/sqlglyph/ast_serializer.py` |
+| AST snippet cap | 500 chars | `sql-engine/sqlglyph/ast_serializer.py` |
+| Diagnostics cap | 200 | `sql-engine/sqlglyph/diagnostics.py` |
+| Transformations cap | 120 | `sql-engine/sqlglyph/explanations.py` |
+| Diff row cap | 5,000 | `sql-engine/sqlglyph/diff.py` |
+| Persisted conversion cap | 512 KB | `src/state/sessionStore.ts` |
+| Conversion cache | 40 entries, 10-minute TTL | `src/services/conversionCache.ts` |
+| Pinned SQLGlot | 30.31.0 | `src/engine/pythonEnvironment.ts` |
+| Minimum Python | 3.9 | `src/engine/pythonDiscovery.ts` |
+| Protocol version | `1.0` | `sql-engine/sqlglyph/protocol.py` |
+| Supported dialects | 16 | `sql-engine/sqlglyph/dialect_registry.py`, `src/types/dialect.ts` |
 
 ---
 
@@ -87,13 +90,13 @@ get engineScript(): string {
 except the engine handle used for disposal.
 
 ```ts
-// src/extension.ts:18-53
+// src/extension.ts
 const output = vscode.window.createOutputChannel('SQL Glyph');
 const environment = new PythonEnvironment(context, output);
 const engine = new EngineManager(context, output, environment);
 activeEngine = engine;
 
-const store = new SessionStore();
+const store = new SessionStore(context.workspaceState);
 const statusBar = new StatusBarController();
 const dialects = new DialectService(engine);
 const conversionDiagnostics = new DiagnosticService('conversion');
@@ -104,21 +107,24 @@ const conversion = new ConversionService(
   engine, dialects, conversionDiagnostics, preview, store, statusBar, output
 );
 const ast = new AstService(engine, dialects, astDiagnostics, store, output);
+const codeLens = new SqlGlyphCodeLensProvider(dialects);
+const codeActions = new SqlGlyphCodeActionProvider(dialects, store);
 ```
 
 It then:
 
-1. Pushes every disposable onto `context.subscriptions` (`src/extension.ts:55-65`).
-2. Registers the `sqlglyph-preview:` content provider (`:67-72`).
-3. Registers both webview view providers with `retainContextWhenHidden`
-   (`:74-92`).
-4. Subscribes the status bar to engine state (`:94-98`).
-5. Registers commands and configuration listeners (`:100-111`).
+1. Pushes every disposable onto `context.subscriptions`, including the CodeLens
+   and Quick Fix providers.
+2. Registers the `sqlglyph-preview:` content provider.
+3. Registers both webview view providers with `retainContextWhenHidden`.
+4. Calls `store.restore()` to load the last conversion from workspace state.
+5. Subscribes the status bar to engine state.
+6. Registers commands and configuration listeners.
 
 The last step is a **non-interactive** readiness check:
 
 ```ts
-// src/extension.ts:115-126
+// src/extension.ts
 void engine
   .ensureReady(false)
   .then((ready) => {
@@ -131,8 +137,7 @@ void engine
 `interactive: false` is deliberate: opening a SQL file must never pop a setup
 dialog. Only user-initiated actions pass `true`.
 
-`deactivate()` disposes the engine, which stops the child process
-(`src/extension.ts:129-132`).
+`deactivate()` disposes the engine, which stops the child process.
 
 ---
 
@@ -161,34 +166,46 @@ The handlers are intentionally thin:
 
 | Command | Handler | Behavior |
 | --- | --- | --- |
-| `sqlGlyph.convertSelection` | `conversion.convert('selection')` | `registerCommands.ts:97-99` |
-| `sqlGlyph.convertDocument` | `conversion.convert('document')` | `:101-103` |
-| `sqlGlyph.compareDialects` | `conversion.compare()` | `:105-107` |
-| `sqlGlyph.inspectAst` | `ast.inspectActiveScope()` | `:109-111` |
-| `sqlGlyph.showAnalysis` | `analysis.showLastOrPrompt()` | `:113-115` |
-| `sqlGlyph.selectSourceDialect` | `dialects.pickSource()` + `store.refresh()` | `:117-122` |
-| `sqlGlyph.selectTargetDialect` | `dialects.pickTarget()` + `store.refresh()` | `:124-129` |
-| `sqlGlyph.openConversionPanel` | focus the sidebar view | `:131-133` |
-| `sqlGlyph.setupEngine` | `environment.setup()` then `engine.reset()` / health | `:135-155` |
-| `sqlGlyph.showOutput` | show the output channel | `:157-159` |
+| `sqlGlyph.convertSelection` | `conversion.convert('selection')` | Selection only |
+| `sqlGlyph.convertDocument` | `conversion.convert('document')` | Whole file |
+| `sqlGlyph.convertToTarget` | `conversion.convertActiveScope({ target })` | Selection if present, else file |
+| `sqlGlyph.formatSql` | `conversion.formatActiveScope()` | Format with the resolved source dialect |
+| `sqlGlyph.compareDialects` | `conversion.compare()` | Convert and open analysis |
+| `sqlGlyph.inspectAst` | `ast.inspectActiveScope()` | Parse and open the AST Explorer |
+| `sqlGlyph.showAnalysis` | `analysis.showLastOrPrompt()` | Reopen analysis |
+| `sqlGlyph.copyResult` | `conversion.copy()` | Copy the last result |
+| `sqlGlyph.showDiff` | `conversion.showDiff()` | Reopen the diff |
+| `sqlGlyph.selectSourceDialect` | `dialects.pickSource()` + `store.refresh()` | Choose source |
+| `sqlGlyph.selectTargetDialect` | `dialects.pickTarget()` + `store.refresh()` | Choose target |
+| `sqlGlyph.openConversionPanel` | focus the sidebar view | Show the panel |
+| `sqlGlyph.setupEngine` | `environment.setup()` then `engine.reset()` / health | Managed setup |
+| `sqlGlyph.showOutput` | show the output channel | Diagnostics |
 
 `compare()` picks the scope from the current selection and opens the analysis
-panel after a successful conversion (`src/services/conversionService.ts:184-196`).
+panel after a successful conversion.
+
+CodeLens (`src/providers/codeLensProvider.ts`) shows **Convert to <target>**,
+**Format SQL**, and **Inspect AST** at the top of SQL files. It refreshes when
+the target dialect or `sqlGlyph.codeLens.enabled` changes.
+
+The Quick Fix provider (`src/providers/codeActionProvider.ts`) contributes
+`QuickFix` and `RefactorRewrite` actions. On SQL Glyph diagnostics it offers
+**Show Conversion Analysis**, **Copy Converted SQL**, and **Show Conversion
+Diff**. On any SQL selection it offers convert and format commands. Every action
+is a command invocation, so the explicit-confirmation rule still applies.
 
 ---
 
 ## 4. Input collection, scope, and limits
 
 `ConversionService.convert()` is the orchestrator
-(`src/services/conversionService.ts:38-182`). Its checks run in a deliberate
-order:
+(`src/services/conversionService.ts`). Its checks run in a deliberate order:
 
-1. **Active editor** — otherwise warn and return (`:42-46`).
-2. **Busy flag** — one conversion at a time (`:48-51`).
-3. **Selection required** — an empty selection for a selection command warns
-   (`:55-60`).
-4. **Non-blank text** — whitespace-only input warns (`:62-67`).
-5. **Byte limit** (`:69-80`):
+1. **Active editor** — otherwise warn and return.
+2. **Busy flag** — one conversion at a time.
+3. **Selection required** — an empty selection for a selection command warns.
+4. **Non-blank text** — whitespace-only input warns.
+5. **Byte limit**:
 
 ```ts
 const maxKb = vscode.workspace
@@ -204,14 +221,45 @@ misconfigured value cannot disable the guard.
 For a selection, the service records the document offset where the SQL begins:
 
 ```ts
-// src/services/conversionService.ts:100
 const baseOffset = scope === 'selection' ? document.offsetAt(selection.start) : 0;
 ```
 
 That offset is stored in the outcome and later added to every engine span.
 
 The `busy` flag and status bar are set before engine work and cleared in
-`finally`, so a thrown error cannot leave the service stuck (`:82-83, 179-181`).
+`finally`, so a thrown error cannot leave the service stuck.
+
+### 4.1 Progress and cancellation
+
+`convert()` wraps the engine work in `vscode.window.withProgress` with
+`cancellable: true`. The cancellation token aborts an `AbortController` whose
+signal is passed to `EngineManager.request()` and then to the bridge:
+
+```ts
+const controller = new AbortController();
+const subscription = token?.onCancellationRequested?.(() => controller.abort());
+const response = await this.engine.request<ConversionPayload>(action, payload, {
+  signal: controller.signal
+});
+```
+
+Progress reports cover engine readiness, dialect resolution, the request, and
+rendering. A `BridgeError` with code `ABORTED` is treated as a normal user
+cancellation: the status bar returns to idle and an informational message is
+shown.
+
+### 4.2 Conversion cache
+
+Successful `transpile` and `format` responses are stored in an in-memory
+`ConversionCache` (`src/services/conversionCache.ts`):
+
+- key: `action:sha256(sql):source:target:pretty|compact:sqlglotVersion`
+- default 40 entries, 10-minute TTL, least-recently-used eviction
+- `unsupported` results are never cached
+
+The SQLGlot version is part of the key so a dependency upgrade cannot serve
+stale output. Cache hits still flow through the same store, diagnostics, diff,
+and notification path; only the engine request is skipped.
 
 ---
 
@@ -223,7 +271,7 @@ The `busy` flag and status bar are set before engine work and cleared in
 ### 5.1 Configured dialects
 
 ```ts
-// src/services/dialectService.ts:23-35
+// src/services/dialectService.ts
 getConfiguredSource(): SourceDialectId {
   const value = vscode.workspace.getConfiguration('sqlGlyph')
     .get<string>('defaultSourceDialect', 'auto');
@@ -238,7 +286,8 @@ getConfiguredTarget(): DialectId {
 ```
 
 Invalid stored values fall back to `auto` / the default target rather than
-reaching the engine.
+reaching the engine. The registry lists sixteen dialects; the TypeScript mirror
+is checked against the Python registry by the integration tests.
 
 ### 5.2 Auto detection
 
@@ -446,8 +495,12 @@ const id = String(this.nextId);
 this.nextId += 1;
 const timer = setTimeout(() => this.handleTimeout(id), Math.max(1, timeoutMs));
 timer.unref?.();
-this.queue.push({ id, action, payload, resolve, reject, timer, enqueuedAt: Date.now() });
+this.queue.push({ id, action, payload, resolve, reject, timer, enqueuedAt: Date.now(), signal });
 ```
+
+`request()` accepts either a timeout number or a `BridgeRequestOptions` object
+with `timeoutMs` and an optional `AbortSignal`. An already-aborted signal is
+rejected immediately with `ABORTED` without touching the engine.
 
 `pump()` sends exactly one active request (`:342-375`):
 
@@ -475,16 +528,19 @@ protocol.
 
 | Situation | Behavior | Code |
 | --- | --- | --- |
-| Queued request times out | Reject that request only | `:377-389` |
-| Active request times out | Reject, log, kill the process | `:391-403` |
-| Write fails | Reject active, terminate | `:357-374` |
-| Process exits | Reject all pending, emit `onExit` | `:446-475` |
-| `stop()` | Send `shutdown`, wait 1.5 s, then kill | `:212-257` |
-| `dispose()` | Mark disposed, call `stop()` | `:259-262` |
+| Queued request times out | Reject that request only | `TIMEOUT` |
+| Active request times out | Reject, log, kill the process | `TIMEOUT` |
+| Queued request aborts | Reject that request only | `ABORTED` |
+| Active request aborts | Reject, log, kill the process | `ABORTED` |
+| Write fails | Reject active, terminate | `ENGINE_STOPPED` |
+| Process exits | Reject all pending, emit `onExit` | `ENGINE_STOPPED` |
+| `stop()` | Send `shutdown`, wait 1.5 s, then kill | — |
+| `dispose()` | Mark disposed, call `stop()` | `DISPOSED` |
 
-An active-request timeout kills the process because the bridge cannot know
-whether the engine is still synchronized. A queued timeout is safe because that
-request was never written.
+An active-request timeout or abort kills the process because the bridge cannot
+know whether the engine is still synchronized. A queued timeout or abort is safe
+because that request was never written. Every request clears its timer and
+removes its abort listener when it settles.
 
 ---
 
@@ -537,31 +593,33 @@ the payload without overwriting explicit payload keys (`:179-183`).
 
 ### 8.2 Actions
 
-`ACTIONS` (`:36-47`) contains ten actions. The extension uses five:
+`ACTIONS` contains ten actions. The extension uses six:
 
 | Action | Used by extension | Purpose |
 | --- | --- | --- |
 | `health` | yes | Python/SQLGlot versions, dialect count |
 | `detect_dialect` | yes | Heuristic source detection |
 | `transpile` | yes | Parse + generate + analyze |
+| `format` | yes | Same-dialect formatting |
 | `inspect_ast` | yes | Serialized AST |
 | `shutdown` | yes | Clean exit |
 | `ping` | no | Engine identity and dialect list |
 | `list_dialects` | no | Dialect metadata |
 | `parse` | no | Statement list without generation |
 | `analyze` | no | Transpile without an AST by default |
-| `format` | no | Same-dialect transpile |
 
-`dispatch()` (`:238-324`) validates inputs per action:
+`dispatch()` validates inputs per action:
 
 - `_require_sql()` requires a string and calls `validate_sql_text()` with the
-  clamped `maxBytes` (`:195-209`).
+  clamped `maxBytes`.
 - `_source_dialect()` requires `sourceDialect` (or `dialect`) and rejects
-  `auto` (`:223-235`).
-- `_require_target()` requires `targetDialect` (`:219-220`).
-- `inspect_ast` clamps `maxNodes` to `[100, 20000]`, default 5000 (`:284-288`).
+  `auto`.
+- `_require_target()` requires `targetDialect`.
+- `inspect_ast` clamps `maxNodes` to `[100, 20000]`, default 5000.
 - `transpile` defaults `pretty` to `true` and `includeAst` to `true`; `analyze`
-  defaults `includeAst` to `false` (`:296-301`).
+  defaults `includeAst` to `false`.
+- `format` requires `dialect` (or `sourceDialect`) and uses it as both source
+  and target.
 
 ### 8.3 Error envelope
 
@@ -597,7 +655,7 @@ only (`:347-360`).
 
 ## 9. Parsing the source SQL
 
-`parse_sql()` (`sql-engine/sqlglyph/parser.py:81-123`) validates and parses:
+`parse_sql()` (`sql-engine/sqlglyph/parser.py`) validates and parses:
 
 ```python
 validate_sql_text(sql, max_bytes)
@@ -611,17 +669,16 @@ with capture_sqlglot_warnings() as warnings:
         raise ParseFailedError(_parse_error_message(exc), _parse_error_details(exc)) from exc
 ```
 
-`validate_sql_text()` (`:66-78`) rejects non-strings, blank input
-(`EMPTY_SQL`), and input over the byte limit (`SQL_TOO_LARGE`), measuring UTF-8
-bytes.
+`validate_sql_text()` rejects non-strings, blank input (`EMPTY_SQL`), and input
+over the byte limit (`SQL_TOO_LARGE`), measuring UTF-8 bytes.
 
 `None` statements are filtered out; if nothing remains, the input is treated as
-empty (`:115-117`).
+empty.
 
 ### 9.1 Warning capture
 
 SQLGlot warnings are captured with a logging handler instead of being printed
-(`parser.py:39-63`):
+(`parser.py`):
 
 ```python
 class WarningCollector(logging.Handler):
@@ -631,21 +688,45 @@ class WarningCollector(logging.Handler):
             self.messages.append(message[:1000])
 ```
 
-The protocol disables propagation for the `sqlglot` logger
-(`protocol.py:373`), so warnings become diagnostics rather than stderr noise.
+The protocol disables propagation for the `sqlglot` logger, so warnings become
+diagnostics rather than stderr noise.
 
 ### 9.2 Parse error details
 
-`_parse_error_details()` (`parser.py:143-161`) keeps the first 10 SQLGlot error
-entries with `description`, `line`, `col`, `startContext`, `highlight`, and
-`endContext`. `_parse_error_message()` (`:126-140`) uses the first error's
-line/column and strips ANSI escapes from SQLGlot's string form.
+`_parse_error_details()` keeps the first 10 SQLGlot error entries with
+`description`, `line`, `col`, `startContext`, `highlight`, and `endContext`.
+`_parse_error_message()` uses the first error's line/column and strips ANSI
+escapes from SQLGlot's string form.
+
+### 9.3 Partial parsing
+
+`parse_sql_partial()` first tries the normal parse. If that fails and the input
+contains more than one top-level statement, it:
+
+1. Splits the SQL with `split_statement_chunks()`, which respects single and
+   double quotes, backticks, dollar-quoted bodies, line comments, and nested
+   block comments.
+2. Parses each chunk independently.
+3. Shifts SQLGlot token offsets by the chunk's character offset so spans still
+   point at the original document.
+4. Keeps successful statements and records a `StatementError` for each failed
+   chunk with stage `parse`, message, detail, span, line/column, and parse
+   context.
+
+`ParseOutcome` therefore carries `statement_indices` (the original chunk index
+for each surviving statement) and `errors`. A single-statement parse failure
+still raises `ParseFailedError`, preserving the familiar structured error
+envelope.
+
+`split_statement_chunks()` is deliberately conservative. It is not a SQL
+parser; it only avoids splitting inside literals and comments. Dialect batch
+separators such as T-SQL `GO` are still not treated as statement boundaries.
 
 ---
 
 ## 10. Target generation and statement assembly
 
-`transpile()` (`sql-engine/sqlglyph/transpiler.py:115-184`) is the pipeline:
+`transpile()` (`sql-engine/sqlglyph/transpiler.py`) is the pipeline:
 
 ```python
 source = normalize_dialect(source)
@@ -653,48 +734,72 @@ target = normalize_dialect(target)
 get_dialect(source)
 get_dialect(target)
 
-outcome = parse_sql(sql, source, max_bytes=max_bytes)
+outcome = parse_sql_partial(sql, source, max_bytes=max_bytes)
+mapper = PositionMapper(sql)
+
 with capture_sqlglot_warnings() as generation_warnings:
-    generated = _generate_statements(outcome.statements, target, pretty)
-engine_warnings = list(outcome.warnings)
-for warning in generation_warnings:
-    if warning not in engine_warnings:
-        engine_warnings.append(warning)
-converted = _join_statements(generated, sql, pretty)
+    generated_items, generation_errors = _generate_statements(
+        outcome.statements, outcome.statement_indices, target, pretty, mapper
+    )
+engine_warnings = list(outcome.warnings) + generation_warnings
+if not generated_items:
+    raise GenerationFailedError(...)   # every statement failed
+
+converted = _join_statements([item[2] for item in generated_items], sql, pretty)
+round_trip_errors = _verify_round_trip(generated_items, target)
+statement_errors = outcome.errors + generation_errors + round_trip_errors
 
 diagnostics, status = build_diagnostics(
-    outcome.statements, sql, converted, source, target,
+    successful_statements, sql, converted, source, target,
     engine_warnings=engine_warnings,
 )
-
-mapper = PositionMapper(sql)
-transformations, truncated = collect_transformations(
-    outcome.statements, generated, source, target, mapper, original_sql=sql,
-)
-
-ast = serialize_ast(outcome.statements, source, sql) if include_ast else None
+for error in statement_errors:
+    diagnostics.append(_statement_error_diagnostic(error))
+if statement_errors:
+    status = "unsupported"
 ```
 
 `get_dialect()` throws `UNSUPPORTED_DIALECT` for unknown identifiers before any
 parsing.
 
-### 10.1 Per-statement generation
+### 10.1 Per-statement generation and errors
 
-`_generate_statements()` (`transpiler.py:41-70`) calls:
+`_generate_statements()` calls:
 
 ```python
 statement.sql(dialect=target, pretty=pretty)
 ```
 
-`UnsupportedError` / `ParseError` become `GENERATION_ERROR` with the statement
-index and target dialect. Any other exception becomes a defensive
-`GENERATION_ERROR` naming the exception type. Messages are ANSI-stripped and
-truncated to 500 characters (`:73-75`).
+Each statement is generated independently. `UnsupportedError` / `ParseError`
+becomes a `StatementError` with stage `generate`, the original statement index,
+the target dialect, and the statement's source span. Any other exception becomes
+a defensive `StatementError` naming the exception type. Messages are
+ANSI-stripped and truncated to 500 characters.
 
-### 10.2 Joining
+If **no** statement generates, the request raises `GenerationFailedError` with
+up to ten per-statement details. If **some** generate, the successful output is
+returned with `statementErrors`.
+
+### 10.2 Round-trip verification
+
+After generation, `_verify_round_trip()` parses each generated statement back
+with the **target** grammar:
 
 ```python
-# transpiler.py:33-38
+reparsed = sqlglot.parse(generated_sql, read=target)
+if not any(item is not None for item in reparsed):
+    raise ParseError("The target grammar produced an empty parse tree.")
+```
+
+A failure becomes a `StatementError` with stage `round-trip`, category
+`round_trip`, and an error diagnostic. Round-trip failures do not remove the
+generated statement from the output; they mark the overall status `unsupported`
+and tell the user to review it. This is a syntax check only, not a semantic
+equivalence proof.
+
+### 10.3 Joining
+
+```python
 separator = ";\n" if pretty else "; "
 converted = separator.join(part.strip() for part in generated if part is not None)
 if original.rstrip().endswith(";"):
@@ -704,13 +809,19 @@ if original.rstrip().endswith(";"):
 Statements are generated independently and joined. This is why multi-statement
 files do not simulate session state.
 
-### 10.3 Metadata
+### 10.4 Metadata
 
-`_metadata()` (`:78-103`) records the dialect pair, statement count, pretty
-flag, elapsed milliseconds, SQLGlot/engine versions, and the honesty flags:
+`_metadata()` records the dialect pair, statement counts, pretty flag, elapsed
+milliseconds, SQLGlot/engine versions, and the honesty flags:
 
 ```json
 {
+  "statementCount": 2,
+  "inputStatementCount": 3,
+  "partial": true,
+  "statementErrorCount": 1,
+  "roundTripVerified": true,
+  "roundTripFailureCount": 0,
   "executed": false,
   "databaseConnected": false,
   "semanticallyVerified": false,
@@ -721,6 +832,10 @@ flag, elapsed milliseconds, SQLGlot/engine versions, and the honesty flags:
   "transformationsTruncated": false
 }
 ```
+
+`statementCount` counts successful statements. `inputStatementCount` counts
+every chunk the splitter saw. `partial` is true whenever any statement error
+exists.
 
 ---
 
@@ -1007,25 +1122,23 @@ selection in the middle of a file.
 ### 15.1 The request and outcome
 
 ```ts
-// src/services/conversionService.ts:103-110
-const response = await this.engine.request<ConversionPayload>('transpile', {
-  sql: sourceText,
-  sourceDialect: source,
-  targetDialect: target,
-  pretty,
-  includeAst: false,
-  maxBytes
+const payload = format
+  ? { sql: sourceText, dialect: source, pretty, maxBytes }
+  : { sql: sourceText, sourceDialect: source, targetDialect: target, pretty,
+      includeAst: false, maxBytes };
+const response = await this.engine.request<ConversionPayload>(action, payload, {
+  signal
 });
 ```
 
 `includeAst: false` keeps the conversion response small; the AST is fetched
 separately by `inspect_ast`.
 
-On success, the service builds an outcome (`:132-142`):
+On success, the service builds an outcome:
 
 ```ts
 const outcome: ConversionOutcome = {
-  result, scope,
+  result, kind: format ? 'format' : 'convert', scope,
   documentUri: document.uri,
   documentVersion: document.version,
   sourceText, baseOffset,
@@ -1035,12 +1148,29 @@ const outcome: ConversionOutcome = {
 this.store.setConversion(outcome);
 ```
 
-`SessionStore` (`src/state/sessionStore.ts:47-55`) stores the last conversion
-and AST and fires `'conversion'` or `'ast'`. Views subscribe and repost state.
+`SessionStore` (`src/state/sessionStore.ts`) stores the last conversion and AST
+and fires `'conversion'` or `'ast'`. Views subscribe and repost state.
+
+When a `vscode.Memento` is supplied (the extension passes
+`context.workspaceState`), `setConversion()` also persists a versioned snapshot:
+
+```ts
+{
+  version: 1,
+  result, kind, scope,
+  documentUri: document.uri.toString(),
+  documentVersion, sourceText, baseOffset, fileName, source, target
+}
+```
+
+`restore()` validates the shape and dialect ids, reconstructs the `Uri`, and
+fires `'conversion'`. Invalid or oversized state (over 512 KB) is deleted. The
+AST is never persisted. Restoring does not bypass the replace guard: `replace()`
+still compares live document text against `sourceText`.
 
 ### 15.2 Diagnostics → Problems panel
 
-`DiagnosticService.publish()` (`src/services/diagnosticService.ts:31-48`) maps
+`DiagnosticService.publish()` (`src/services/diagnosticService.ts`) maps
 each engine diagnostic:
 
 ```ts
@@ -1054,8 +1184,7 @@ result.code = diagnostic.ruleId ?? diagnostic.id;
 
 Diagnostics attach to the **original document** URI, so the Problems panel
 points at the SQL you actually edited. Publishing respects
-`sqlGlyph.showConversionDiagnostics`; when disabled, the collection is cleared
-(`conversionService.ts:146-158`).
+`sqlGlyph.showConversionDiagnostics`; when disabled, the collection is cleared.
 
 ### 15.3 Diff → native editor
 
@@ -1063,7 +1192,6 @@ points at the SQL you actually edited. Publishing respects
 documents under the `sqlglyph-preview:` scheme:
 
 ```ts
-// src/services/previewProvider.ts:45-58
 const left = this.create(original, `${title}-source`);
 const right = this.create(converted, `${title}-target`);
 const leftDocument = await vscode.workspace.openTextDocument(left);
@@ -1082,9 +1210,9 @@ Nothing is written to disk. **Save As…** is a separate, explicit action.
 - idle: `$(symbol-structure) SQL Glyph`
 - busy: `$(sync~spin) SQL Glyph`
 - setup needed: `$(gear) SQL Glyph: setup needed`
-- result: status label plus error/warning theme colors (`:56-77`)
+- result: status label plus error/warning theme colors
 
-The completion notification varies by status (`conversionService.ts:336-383`):
+The completion notification varies by status:
 
 - `unsupported` → error notification, actions **Show Analysis**, **Show Diff**,
   **Copy Result**.
@@ -1095,7 +1223,7 @@ The completion notification varies by status (`conversionService.ts:336-383`):
 
 ## 16. Webviews and the message protocol
 
-All three surfaces share `buildWebviewHtml()` (`src/webview/html.ts:26-56`),
+All three surfaces share `buildWebviewHtml()` (`src/webview/html.ts`),
 which sets a strict CSP:
 
 ```text
@@ -1111,13 +1239,18 @@ form-action 'none';
 
 `connect-src 'none'` means a compromised webview cannot exfiltrate SQL.
 
+Each webview also receives `logoUri`, and the shared HTML builder renders a
+small `SQL Glyph` brand header with `media/icons/icon.png` above the app root.
+The same cat artwork is used for the extension icon, the analysis panel tab, the
+activity-bar container (`media/icons/sql-glyph-activity.png`), and the docs.
+
 The webview is deliberately dumb: it posts a message and the **provider**
 executes the real command. One source of truth, no duplicated logic in
 JavaScript.
 
 ### 16.1 Conversion sidebar messages
 
-`ConversionViewProvider.handleMessage()` (`src/views/conversionView.ts:149-226`)
+`ConversionViewProvider.handleMessage()` (`src/views/conversionView.ts`)
 handles:
 
 `ready`, `convertSelection`, `convertDocument`, `compare`, `inspectActive`,
@@ -1126,31 +1259,29 @@ handles:
 `setupEngine`, `showOutput`, `openSettings`, `refresh`.
 
 State posted to the webview is intentionally small: counts, the first six
-diagnostics, and the first six transformations
-(`src/views/conversionView.ts:99-137`).
+diagnostics, and the first six transformations.
 
 ### 16.2 AST sidebar messages
 
-`AstViewProvider.handleMessage()` (`src/views/astView.ts:117-167`) handles:
+`AstViewProvider.handleMessage()` (`src/views/astView.ts`) handles:
 
 `ready`, `inspectActive`, `inspectSelection`, `inspectDocument`, `revealNode`,
 `copyNodeSql`, `selectSource`, `setupEngine`, `showOutput`, `openSettings`,
 `refresh`.
 
-The AST state includes the full serialized statements (`astView.ts:79-105`),
-bounded by the engine caps.
+The AST state includes the full serialized statements, bounded by the engine
+caps.
 
 ### 16.3 Analysis panel messages
 
-`AnalysisPanel.handleMessage()` (`src/views/analysisPanel.ts:151-188`) handles:
+`AnalysisPanel.handleMessage()` (`src/views/analysisPanel.ts`) handles:
 
 `ready`, `copy`, `showDiff`, `replace`, `saveAs`, `openResult`, `reveal`,
 `showOutput`.
 
 The panel is a `WebviewPanel` created beside the editor, with the icon at
-`media/icons/icon.png` (`analysisPanel.ts:79-96`). It subscribes only to
-conversion changes and disposes its subscription correctly
-(`analysisPanel.ts:65-70, 120-125`).
+`media/icons/icon.png`. It subscribes only to conversion changes and disposes
+its subscription correctly.
 
 ---
 
@@ -1158,7 +1289,7 @@ conversion changes and disposes its subscription correctly
 
 ### 17.1 Replace
 
-`ConversionService.replace()` (`src/services/conversionService.ts:253-297`) is
+`ConversionService.replace()` (`src/services/conversionService.ts`) is
 the safety-critical path:
 
 ```ts
@@ -1185,22 +1316,22 @@ const applied = await editor.edit((builder) => {
 ```
 
 Only after an exact text match **and** a modal confirmation does it edit. Then
-it clears diagnostics for that URI (`:292`).
+it clears diagnostics for that URI.
 
-`rangeForOutcome()` (`:399-410`) reconstructs the original range from
-`baseOffset` and `sourceText` for a selection, or the whole document for a file
-conversion.
+`rangeForOutcome()` reconstructs the original range from `baseOffset` and
+`sourceText` for a selection, or the whole document for a file conversion. A
+conversion restored from workspace state still passes through this same check,
+so a changed document is never overwritten.
 
 ### 17.2 Copy, open, save-as
 
-- `copy()` → clipboard (`:198-204`).
-- `openResult()` → read-only preview beside the editor (`:206-213`).
+- `copy()` → clipboard.
+- `openResult()` → read-only preview beside the editor.
 - `saveAs()` → `showSaveDialog` with a default name
-  `<base>.<target>.sql`, then `workspace.fs.writeFile` (`:299-334`).
+  `<base>.<target>.sql`, then `workspace.fs.writeFile`.
 
-`reveal()` (`:229-251`) maps a span with `baseOffset` and opens the document with
-a selection. `AstService.reveal()` does the same for AST nodes
-(`src/services/astService.ts:146-165`).
+`reveal()` maps a span with `baseOffset` and opens the document with a
+selection. `AstService.reveal()` does the same for AST nodes.
 
 ---
 
@@ -1215,43 +1346,48 @@ Three error classes, three audiences:
 | Engine error payload | Python protocol | `PARSE_ERROR`, `SQL_TOO_LARGE`, `DEPENDENCY_MISSING` | Error/status bar + diagnostics |
 
 `BridgeErrorCode` is `ENGINE_START_FAILED`, `ENGINE_STOPPED`, `TIMEOUT`,
-`PROTOCOL_ERROR`, or `DISPOSED` (`pythonBridge.ts:15-20`).
+`PROTOCOL_ERROR`, `DISPOSED`, or `ABORTED` (`pythonBridge.ts`).
 
 Engine error codes are defined in `sql-engine/sqlglyph/errors.py`:
 `INVALID_REQUEST`, `UNKNOWN_ACTION`, `UNSUPPORTED_DIALECT`, `EMPTY_SQL`,
 `SQL_TOO_LARGE`, `PARSE_ERROR`, `GENERATION_ERROR`, `DEPENDENCY_MISSING`, plus
 the defensive `INTERNAL_ERROR`.
 
+Per-statement problems are not engine errors. They travel inside a successful
+response as `statementErrors` entries with stage `parse`, `generate`, or
+`round-trip`, and they also appear as error diagnostics. The overall status
+becomes `unsupported`, but the successful statements remain available.
+
 Recovery behavior:
 
 - A failed health check leaves the engine not ready; the next interactive action
   can offer setup.
-- A process exit marks the snapshot `stopped`; the next request respawns it
-  (`engineManager.ts:262-275`).
-- An active-request timeout kills the process so a wedged parse cannot block the
-  queue forever.
+- A process exit marks the snapshot `stopped`; the next request respawns it.
+- An active-request timeout or cancellation kills the process so a wedged parse
+  cannot block the queue forever.
 - Configuration changes reset the engine so the next request uses the new
   settings.
 
 The command guard is the last line of defense: it logs the stack and never lets
-an unhandled rejection escape (`registerCommands.ts:42-72`).
+an unhandled rejection escape.
 
 ---
 
 ## 19. Configuration, trust, and lifecycle events
 
-`registerCommands.ts:161-188` reacts to settings:
+`registerCommands.ts` reacts to settings:
 
 - `sqlGlyph.pythonPath` or `sqlGlyph.engineTimeoutMs` → `engine.reset()`, update
   the status bar, and re-check readiness.
 - `sqlGlyph.defaultSourceDialect` or `sqlGlyph.defaultTargetDialect` →
-  `store.refresh()` so views repaint.
+  `store.refresh()` so views repaint, and `codeLens.refresh()` so the lens label
+  follows the new target.
+- `sqlGlyph.codeLens.enabled` → `codeLens.refresh()`.
 - `sqlGlyph.showConversionDiagnostics` turned off → clear the collection.
 
-Trust is enforced at the setup boundary (`pythonEnvironment.ts:85-120`).
-Parsing and conversion still work if an engine is already available; only
-environment creation and dependency installation are blocked in an untrusted
-workspace.
+Trust is enforced at the setup boundary (`pythonEnvironment.ts`). Parsing and
+conversion still work if an engine is already available; only environment
+creation and dependency installation are blocked in an untrusted workspace.
 
 ---
 
@@ -1259,11 +1395,21 @@ workspace.
 
 ### 20.1 Test suites
 
-- **Python** — 106 pytest tests against the real engine:
+- **Python** — 112 pytest tests against the real engine:
   `sql-engine/tests/`.
-- **Unit** — 68 Vitest tests with a mocked VS Code API: `test/unit/`.
-- **Integration** — 41 tests spawning the real `main.py` over the real JSONL
+- **Unit** — 86 Vitest tests with a mocked VS Code API: `test/unit/`.
+- **Integration** — 44 tests spawning the real `main.py` over the real JSONL
   protocol, including all shared fixtures: `test/integration/`.
+
+Coverage is available for both layers:
+
+```bash
+npm run test:coverage    # pytest-cov + vitest --coverage
+```
+
+Unit coverage includes partial parsing, round-trip metadata, the conversion
+cache, bridge cancellation, session persistence, and the CodeLens/Quick Fix
+providers.
 
 Commands:
 
@@ -1290,13 +1436,13 @@ python -m pytest
 ### 20.3 Package
 
 `npm run package:vsix` runs the compile step and produces
-`sql-glyph-0.1.0.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
-README/CHANGELOG/LICENSE, and excludes source, tests, maps, caches, and docs —
-28 files in the 0.1.0 VSIX.
+`sql-glyph-0.2.0.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
+README/CHANGELOG/LICENSE, and excludes source, tests, maps, caches, and docs.
 
-The Marketplace icon is `media/icons/icon.png`; the activity-bar view container
-uses the monochrome `media/icons/sql-glyph.svg`, and the analysis panel uses the
-same PNG (`src/views/analysisPanel.ts:90-95`).
+The Marketplace icon and analysis panel use `media/icons/icon.png`. The
+activity-bar view container uses `media/icons/sql-glyph-activity.png`, a 48×48
+PNG generated from the same cat artwork. The shared webview header also uses the
+PNG.
 
 ---
 
@@ -1318,6 +1464,10 @@ same PNG (`src/views/analysisPanel.ts:90-95`).
    in-memory, replace is modal and content-checked, and SQL never leaves the
    machine.
 8. **Payloads are bounded.** Every large collection has a documented cap.
+9. **Partial beats all-or-nothing.** Successful statements survive a failing
+   sibling, and the failure is reported per statement.
+10. **Generated SQL is parsed back.** The target grammar must accept the output
+    before it is presented as usable.
 
 ---
 
@@ -1332,9 +1482,12 @@ Entry points for exploring the implementation:
 - `src/services/dialectService.ts` — configured/automatic dialect selection.
 - `src/services/diagnosticService.ts` — Problems panel publishing.
 - `src/services/previewProvider.ts` — in-memory previews and native diff.
-- `src/state/sessionStore.ts` — last conversion/AST state and events.
+- `src/services/conversionCache.ts` — in-memory conversion cache.
+- `src/state/sessionStore.ts` — last conversion/AST state, events, persistence.
+- `src/providers/codeLensProvider.ts` — top-of-file CodeLens actions.
+- `src/providers/codeActionProvider.ts` — Quick Fix and refactor actions.
 - `src/engine/engineManager.ts` — readiness, health, restart.
-- `src/engine/pythonBridge.ts` — JSONL framing, queue, timeouts.
+- `src/engine/pythonBridge.ts` — JSONL framing, queue, timeouts, cancellation.
 - `src/engine/pythonEnvironment.ts`, `pythonDiscovery.ts` — setup and discovery.
 - `src/views/` — conversion sidebar, AST sidebar, analysis panel, status bar.
 - `src/webview/html.ts` — CSP-safe HTML builder.

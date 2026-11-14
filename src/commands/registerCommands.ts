@@ -10,6 +10,8 @@ import type { DiagnosticService } from '../services/diagnosticService';
 import type { SessionStore } from '../state/sessionStore';
 import type { StatusBarController } from '../views/statusBar';
 import type { AnalysisPanel } from '../views/analysisPanel';
+import type { SqlGlyphCodeLensProvider } from '../providers/codeLensProvider';
+import { isDialectId } from '../types/dialect';
 
 export interface CommandDependencies {
   readonly engine: EngineManager;
@@ -22,6 +24,7 @@ export interface CommandDependencies {
   readonly store: SessionStore;
   readonly statusBar: StatusBarController;
   readonly output: vscode.OutputChannel;
+  readonly codeLens?: SqlGlyphCodeLensProvider;
 }
 
 type CommandHandler = (...args: unknown[]) => Promise<void> | void;
@@ -85,7 +88,8 @@ export function registerCommands(
     conversionDiagnostics,
     store,
     statusBar,
-    output
+    output,
+    codeLens
   } = dependencies;
 
   const register = (command: string, handler: CommandHandler): void => {
@@ -100,6 +104,24 @@ export function registerCommands(
 
   register('sqlGlyph.convertDocument', async () => {
     await conversion.convert('document');
+  });
+
+  register('sqlGlyph.formatSql', async () => {
+    await conversion.formatActiveScope();
+  });
+
+  register('sqlGlyph.convertToTarget', async (target?: unknown) => {
+    await conversion.convertActiveScope(
+      isDialectId(target) ? { target } : {}
+    );
+  });
+
+  register('sqlGlyph.copyResult', async () => {
+    await conversion.copy();
+  });
+
+  register('sqlGlyph.showDiff', async () => {
+    await conversion.showDiff();
   });
 
   register('sqlGlyph.compareDialects', async () => {
@@ -175,6 +197,10 @@ export function registerCommands(
         event.affectsConfiguration('sqlGlyph.defaultTargetDialect')
       ) {
         store.refresh();
+        codeLens?.refresh();
+      }
+      if (event.affectsConfiguration('sqlGlyph.codeLens.enabled')) {
+        codeLens?.refresh();
       }
       if (
         event.affectsConfiguration('sqlGlyph.showConversionDiagnostics') &&

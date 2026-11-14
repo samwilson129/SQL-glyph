@@ -286,6 +286,61 @@ describeEngine('real Python engine bridge', () => {
     expect(response.metadata.executed).toBe(false);
   });
 
+  it('returns partial results when one statement fails to parse', async () => {
+    const response = await bridge.request<ConversionPayload>('transpile', {
+      sql: 'SELECT 1; SELECT * FROM WHERE; SELECT 3',
+      sourceDialect: 'postgres',
+      targetDialect: 'bigquery',
+      pretty: false,
+      includeAst: false
+    });
+
+    expect(response.success).toBe(true);
+    if (!response.success) {
+      return;
+    }
+    expect(response.status).toBe('unsupported');
+    expect(response.convertedSql).toBe('SELECT 1; SELECT 3');
+    expect(response.statementErrors).toHaveLength(1);
+    expect(response.statementErrors[0].index).toBe(1);
+    expect(response.statementErrors[0].stage).toBe('parse');
+    expect(response.metadata.partial).toBe(true);
+    expect(response.metadata.statementCount).toBe(2);
+    expect(response.metadata.inputStatementCount).toBe(3);
+    expect(response.metadata.statementErrorCount).toBe(1);
+  });
+
+  it('verifies generated SQL with a round-trip parse', async () => {
+    const response = await bridge.request<ConversionPayload>('transpile', {
+      sql: 'SELECT id, name FROM users WHERE active = TRUE',
+      sourceDialect: 'postgres',
+      targetDialect: 'bigquery',
+      pretty: false,
+      includeAst: false
+    });
+    expect(response.success).toBe(true);
+    if (!response.success) {
+      return;
+    }
+    expect(response.metadata.roundTripVerified).toBe(true);
+    expect(response.metadata.roundTripFailureCount).toBe(0);
+    expect(response.statementErrors).toEqual([]);
+  });
+
+  it('parses partial statement summaries', async () => {
+    const response = await bridge.request<ParsePayload>('parse', {
+      sql: 'SELECT 1; SELECT * FROM WHERE; SELECT 3',
+      dialect: 'postgres'
+    });
+    expect(response.success).toBe(true);
+    if (!response.success) {
+      return;
+    }
+    expect(response.status).toBe('unsupported');
+    expect(response.statements.map((statement) => statement.index)).toEqual([0, 2]);
+    expect(response.statementErrors).toHaveLength(1);
+  });
+
   it('formats SQL and analyzes without an AST', async () => {
     const formatted = await bridge.request<ConversionPayload>('format', {
       sql: 'select id,name from users',

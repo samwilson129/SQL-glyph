@@ -2,12 +2,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { EngineManager } from '../engine/engineManager';
+import { BridgeError } from '../engine/pythonBridge';
 import type { SessionStore, ConversionOutcome, ConversionScope } from '../state/sessionStore';
-import type { ConversionPayload, ConversionResult } from '../types/conversion';
+import type { ConversionPayload } from '../types/conversion';
 import { countDiagnostics, countTransformations } from '../types/conversion';
 import { dialectLabel, type DialectId } from '../types/dialect';
 import type { SourceSpan } from '../types/ast';
 import { rangeFromSpan } from '../util/offsets';
+import { ConversionCache } from './conversionCache';
 import type { DialectService } from './dialectService';
 import type { DiagnosticService } from './diagnosticService';
 import type { PreviewContentProvider } from './previewProvider';
@@ -18,7 +20,10 @@ export interface ConvertOptions {
   readonly notify?: boolean;
   readonly source?: DialectId;
   readonly target?: DialectId;
+  readonly format?: boolean;
 }
+
+type ProgressReporter = vscode.Progress<{ message?: string; increment?: number }>;
 
 const HARD_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -32,7 +37,8 @@ export class ConversionService {
     private readonly preview: PreviewContentProvider,
     private readonly store: SessionStore,
     private readonly statusBar: StatusBarController,
-    private readonly output: vscode.OutputChannel
+    private readonly output: vscode.OutputChannel,
+    private readonly cache: ConversionCache = new ConversionCache()
   ) {}
 
   async convert(
@@ -80,33 +86,146 @@ export class ConversionService {
     }
 
     this.busy = true;
-    this.statusBar.setBusy('Converting SQL…');
+    this.statusBar.setBusy(options.format ? 'Formatting SQL…' : 'Converting SQL…');
+    const controller = new AbortController();
 
     try {
-      if (!(await this.engine.ensureReady(true))) {
-        this.statusBar.setError('The local SQL engine is not ready.');
-        return undefined;
-      }
-
-      const source = options.source ?? (await this.dialects.resolveSource(sourceText));
-      if (!source) {
+      let outcome: ConversionOutcome | undefined;
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: options.format ? 'SQL Glyph: Format SQL' : 'SQL Glyph: Convert SQL',
+          cancellable: true
+        },
+        async (progress, token) => {
+          const subscription = token?.onCancellationRequested?.(() => controller.abort());
+          try {
+            outcome = await this.runConversion(
+              scope,
+              options,
+              sourceText,
+              document,
+              selection,
+              maxBytes,
+              progress,
+              controller.signal
+            );
+          } finally {
+            subscription?.dispose();
+          }
+        }
+      );
+      return outcome;
+    } catch (error) {
+      if (error instanceof BridgeError && error.code === 'ABORTED') {
         this.statusBar.setIdle();
+        void vscode.window.showInformationMessage('SQL Glyph: the operation was cancelled.');
         return undefined;
       }
-      const target = options.target ?? this.dialects.getConfiguredTarget();
-      const pretty = vscode.workspace
-        .getConfiguration('sqlGlyph')
-        .get<boolean>('prettyPrint', true);
-      const baseOffset = scope === 'selection' ? document.offsetAt(selection.start) : 0;
+      const message = error instanceof Error ? error.message : String(error);
+      this.statusBar.setError(message);
+      throw error;
+    } finally {
+      this.busy = false;
+    }
+  }
 
-      this.statusBar.setBusy(`Converting ${dialectLabel(source)} → ${dialectLabel(target)}…`);
-      const response = await this.engine.request<ConversionPayload>('transpile', {
-        sql: sourceText,
-        sourceDialect: source,
-        targetDialect: target,
-        pretty,
-        includeAst: false,
-        maxBytes
+  async formatActiveScope(): Promise<ConversionOutcome | undefined> {
+    const editor = vscode.window.activeTextEditor;
+    const scope: ConversionScope =
+      editor && !editor.selection.isEmpty ? 'selection' : 'document';
+    return this.format(scope);
+  }
+
+  /**
+   * Convert the active selection when there is one, otherwise the whole file.
+   * Used by the `convertToTarget` command and CodeLens actions.
+   */
+  async convertActiveScope(
+    options: ConvertOptions = {}
+  ): Promise<ConversionOutcome | undefined> {
+    const editor = vscode.window.activeTextEditor;
+    const scope: ConversionScope =
+      editor && !editor.selection.isEmpty ? 'selection' : 'document';
+    return this.convert(scope, options);
+  }
+
+  async format(scope: ConversionScope): Promise<ConversionOutcome | undefined> {
+    return this.convert(scope, { format: true });
+  }
+
+  private async runConversion(
+    scope: ConversionScope,
+    options: ConvertOptions,
+    sourceText: string,
+    document: vscode.TextDocument,
+    selection: vscode.Selection,
+    maxBytes: number,
+    progress: ProgressReporter,
+    signal: AbortSignal
+  ): Promise<ConversionOutcome | undefined> {
+    const format = options.format === true;
+    progress.report({ message: 'Starting the local engine…', increment: 5 });
+    if (!(await this.engine.ensureReady(true))) {
+      this.statusBar.setError('The local SQL engine is not ready.');
+      return undefined;
+    }
+    if (signal.aborted) {
+      throw new BridgeError('ABORTED', 'The local engine request was cancelled.');
+    }
+
+    progress.report({ message: 'Resolving the source dialect…', increment: 10 });
+    const source = options.source ?? (await this.dialects.resolveSource(sourceText));
+    if (!source) {
+      this.statusBar.setIdle();
+      return undefined;
+    }
+    const target = format ? source : options.target ?? this.dialects.getConfiguredTarget();
+    const pretty = vscode.workspace
+      .getConfiguration('sqlGlyph')
+      .get<boolean>('prettyPrint', true);
+    const baseOffset = scope === 'selection' ? document.offsetAt(selection.start) : 0;
+    const action: 'format' | 'transpile' = format ? 'format' : 'transpile';
+    const sqlglotVersion = this.engine.getHealth()?.sqlglotVersion ?? 'unknown';
+    const cacheKey = ConversionCache.key({
+      action,
+      sql: sourceText,
+      source,
+      target,
+      pretty,
+      sqlglotVersion
+    });
+
+    let result = this.cache.get(cacheKey);
+    if (result) {
+      this.output.appendLine(
+        `[cache] hit ${action} ${dialectLabel(source)} → ${dialectLabel(target)} (${sourceText.length} chars)`
+      );
+    } else {
+      this.statusBar.setBusy(
+        format
+          ? `Formatting ${dialectLabel(source)} SQL…`
+          : `Converting ${dialectLabel(source)} → ${dialectLabel(target)}…`
+      );
+      progress.report({
+        message: format
+          ? `Formatting ${dialectLabel(source)} SQL…`
+          : `Converting ${dialectLabel(source)} → ${dialectLabel(target)}…`,
+        increment: 25
+      });
+
+      const payload = format
+        ? { sql: sourceText, dialect: source, pretty, maxBytes }
+        : {
+            sql: sourceText,
+            sourceDialect: source,
+            targetDialect: target,
+            pretty,
+            includeAst: false,
+            maxBytes
+          };
+      const response = await this.engine.request<ConversionPayload>(action, payload, {
+        signal
       });
 
       if (!response.success) {
@@ -120,65 +239,58 @@ export class ConversionService {
           });
         }
         this.output.appendLine(
-          `[convert] ${response.error.code}: ${response.error.message}${
+          `[${action}] ${response.error.code}: ${response.error.message}${
             response.error.hint ? ` — ${response.error.hint}` : ''
           }`
         );
         await this.showFailure(response.error.code, response.error.message, response.error.hint);
         return undefined;
       }
-
-      const result: ConversionResult = response;
-      const outcome: ConversionOutcome = {
-        result,
-        scope,
-        documentUri: document.uri,
-        documentVersion: document.version,
-        sourceText,
-        baseOffset,
-        fileName: path.basename(document.fileName) || 'query.sql',
-        source,
-        target
-      };
-
-      this.store.setConversion(outcome);
-
-      const publish = vscode.workspace
-        .getConfiguration('sqlGlyph')
-        .get<boolean>('showConversionDiagnostics', true);
-      if (publish) {
-        this.diagnostics.publish({
-          uri: document.uri,
-          document,
-          baseOffset,
-          diagnostics: result.diagnostics
-        });
-      } else {
-        this.diagnostics.clear(document.uri);
-      }
-
-      this.statusBar.setResult(result);
-
-      if (options.openDiff !== false) {
-        await this.preview.showDiff(
-          sourceText,
-          result.convertedSql,
-          this.titleFor(outcome)
-        );
-      }
-
-      if (options.notify !== false) {
-        void this.notify(outcome);
-      }
-
-      return outcome;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.statusBar.setError(message);
-      throw error;
-    } finally {
-      this.busy = false;
+      result = response;
+      this.cache.set(cacheKey, result);
     }
+
+    progress.report({ message: 'Preparing diagnostics and diff…', increment: 50 });
+    const outcome: ConversionOutcome = {
+      result,
+      kind: format ? 'format' : 'convert',
+      scope,
+      documentUri: document.uri,
+      documentVersion: document.version,
+      sourceText,
+      baseOffset,
+      fileName: path.basename(document.fileName) || 'query.sql',
+      source,
+      target
+    };
+
+    this.store.setConversion(outcome);
+
+    const publish = vscode.workspace
+      .getConfiguration('sqlGlyph')
+      .get<boolean>('showConversionDiagnostics', true);
+    if (publish) {
+      this.diagnostics.publish({
+        uri: document.uri,
+        document,
+        baseOffset,
+        diagnostics: result.diagnostics
+      });
+    } else {
+      this.diagnostics.clear(document.uri);
+    }
+
+    this.statusBar.setResult(result);
+
+    if (options.openDiff !== false) {
+      await this.preview.showDiff(sourceText, result.convertedSql, this.titleFor(outcome));
+    }
+
+    if (options.notify !== false) {
+      void this.notify(outcome);
+    }
+
+    return outcome;
   }
 
   async compare(): Promise<ConversionOutcome | undefined> {

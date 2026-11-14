@@ -23,10 +23,16 @@ EXPECTED_IDS = [
     "duckdb",
     "spark",
     "trino",
+    "redshift",
+    "clickhouse",
+    "databricks",
+    "hive",
+    "presto",
+    "teradata",
 ]
 
 
-def test_registry_has_exactly_the_v1_dialects():
+def test_registry_has_exactly_the_supported_dialects():
     assert SUPPORTED_DIALECT_IDS == EXPECTED_IDS
     assert [item["id"] for item in list_dialects()] == EXPECTED_IDS
 

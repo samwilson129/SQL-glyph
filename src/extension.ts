@@ -12,6 +12,8 @@ import { DiagnosticService } from './services/diagnosticService';
 import { DialectService } from './services/dialectService';
 import { PreviewContentProvider } from './services/previewProvider';
 import { SessionStore } from './state/sessionStore';
+import { SqlGlyphCodeActionProvider } from './providers/codeActionProvider';
+import { SqlGlyphCodeLensProvider } from './providers/codeLensProvider';
 
 let activeEngine: EngineManager | undefined;
 
@@ -24,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const engine = new EngineManager(context, output, environment);
   activeEngine = engine;
 
-  const store = new SessionStore();
+  const store = new SessionStore(context.workspaceState);
   const statusBar = new StatusBarController();
   const dialects = new DialectService(engine);
   const conversionDiagnostics = new DiagnosticService('conversion');
@@ -51,6 +53,8 @@ export function activate(context: vscode.ExtensionContext): void {
     ast
   );
   const astView = new AstViewProvider(context, store, engine, dialects, ast);
+  const codeLens = new SqlGlyphCodeLensProvider(dialects);
+  const codeActions = new SqlGlyphCodeActionProvider(dialects, store);
 
   context.subscriptions.push(
     engine,
@@ -61,8 +65,15 @@ export function activate(context: vscode.ExtensionContext): void {
     preview,
     analysis,
     conversionView,
-    astView
+    astView,
+    codeLens,
+    vscode.languages.registerCodeLensProvider({ language: 'sql', scheme: '*' }, codeLens),
+    vscode.languages.registerCodeActionsProvider({ language: 'sql', scheme: '*' }, codeActions, {
+      providedCodeActionKinds: SqlGlyphCodeActionProvider.providedCodeActionKinds
+    })
   );
+
+  store.restore();
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(
@@ -107,7 +118,8 @@ export function activate(context: vscode.ExtensionContext): void {
     conversionDiagnostics,
     store,
     statusBar,
-    output
+    output,
+    codeLens
   });
 
   statusBar.setEngine(engine.getSnapshot());

@@ -7,6 +7,7 @@ export interface WebviewHtmlOptions {
   readonly scriptUri: string;
   readonly sharedScriptUri?: string;
   readonly styleUri: string;
+  readonly logoUri?: string;
   readonly bodyHtml?: string;
 }
 
@@ -27,6 +28,13 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   const title = escapeHtml(options.title);
   const nonce = escapeHtml(options.nonce);
   const body = options.bodyHtml ?? '<p class="empty">Loading SQL Glyph…</p>';
+  const brand = options.logoUri
+    ? `<header class="app-brand">
+    <img class="app-logo" src="${escapeHtml(options.logoUri)}" alt="" />
+    <span class="app-brand-title">SQL Glyph</span>
+    <span class="app-brand-sub">${title}</span>
+  </header>`
+    : '';
   const contentSecurityPolicy = [
     "default-src 'none'",
     `img-src ${options.cspSource} data:`,
@@ -48,6 +56,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   <title>${title}</title>
 </head>
 <body>
+  ${brand}
   <div id="app" class="app">${body}</div>
   ${options.sharedScriptUri ? `<script nonce="${nonce}" src="${options.sharedScriptUri}"></script>` : ''}
   <script nonce="${nonce}" src="${options.scriptUri}"></script>
