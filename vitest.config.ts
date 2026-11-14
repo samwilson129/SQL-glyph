@@ -14,6 +14,12 @@ export default defineConfig({
     hookTimeout: 60000,
     sequence: {
       concurrent: false
+    },
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.d.ts'],
+      reporter: ['text', 'lcov', 'json-summary']
     }
   }
 });

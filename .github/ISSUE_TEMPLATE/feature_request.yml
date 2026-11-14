@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest a user-facing improvement to SQL Glyph.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Describe the task or workflow that is difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Explain the behavior you expect from SQL Glyph.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional approaches or workarounds you have tried.
+    validations:
+      required: false

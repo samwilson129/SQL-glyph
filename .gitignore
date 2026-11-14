@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.coverage
 *.vsix
 __pycache__/
 *.py[cod]

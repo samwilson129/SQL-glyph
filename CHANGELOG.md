@@ -2,6 +2,27 @@
 
 All notable changes to SQL Glyph are documented here.
 
+## [0.2.0] - 2026-11-15
+
+### Added
+
+- Expanded support from 10 to 16 SQL dialects: Redshift, ClickHouse, Databricks SQL, Hive, Presto, and Teradata.
+- Round-trip target-dialect parsing, per-statement partial results, SQL formatting, and additional conversion metadata.
+- Cancellation with progress reporting, conversion caching, and restoration of the last conversion per workspace.
+- Editor Quick Fix actions and CodeLens shortcuts for conversion and formatting.
+- Additional engine, cache, persistence, provider, and integration tests, plus updated workflow and manual verification guides.
+- Updated cat branding across extension surfaces.
+
+### Changed
+
+- Refocused Marketplace copy on user-facing capabilities and usage.
+- Improved analysis output for partial conversions and round-trip validation.
+
+### Limitations
+
+- Round-trip validation confirms target-dialect syntax only; it does not execute SQL or prove semantic equivalence.
+- Partial output does not imply that the failed statements were safely converted; review per-statement errors and diagnostics.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added

@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible problem with SQL Glyph.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove or anonymize proprietary SQL, credentials, and customer data before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: SQL Glyph version
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: VS Code version, OS, and Python version.
+    validations:
+      required: true
+  - type: input
+    id: dialects
+    attributes:
+      label: Source and target dialects
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the command used and a minimal anonymized SQL example if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant diagnostics or sanitized output.
+    validations:
+      required: true
