@@ -4,6 +4,7 @@
 .vscodeignore
 src/**
 test/**
+docs/**
 node_modules/**
 dist/**/*.map
 **/__pycache__/**

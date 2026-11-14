@@ -48,6 +48,11 @@ SQL Glyph is a local-first VS Code extension that uses [SQLGlot](https://github.
 
 The Python dialect registry is authoritative for engine capabilities. The TypeScript registry mirrors display metadata, and integration tests assert that both lists contain the same ten identifiers.
 
+## Documentation
+
+- **[High-level workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/HIGH_LEVEL_WORKFLOW.md)** — the system at a glance: the two processes, the seven stages of a conversion, layer ownership, guarantees, and failure handling.
+- **[In-depth pipeline workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/IN_DEPTH_WORKFLOW.md)** — the code-level walkthrough: activation, commands, dialect detection, engine lifecycle, the JSON Lines bridge, protocol dispatch, parsing, generation, diagnostics, transformation explanations, AST serialization, UTF-16 span mapping, webviews, the replace guard, error taxonomy, and packaging.
+
 ## Requirements
 
 - VS Code **1.90 or newer**
@@ -207,6 +212,7 @@ src/                      TypeScript extension
 media/                    icons and vanilla JS/CSS webviews
 sql-engine/               Python engine and pytest suite
 test/                     Vitest unit/integration tests and shared fixtures
+docs/                     high-level and in-depth workflow guides
 ```
 
 ### Architecture

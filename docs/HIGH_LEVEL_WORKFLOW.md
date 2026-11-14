@@ -1,8 +1,68 @@
 # SQL Glyph: High-Level Workflow
 
-This document is the quick mental model for how a conversion travels through SQL Glyph. For component-level details, see [IN_DEPTH_WORKFLOW.md](./IN_DEPTH_WORKFLOW.md).
+<p align="center">
+  <img src="./assets/sql-glyph-icon.png" alt="SQL Glyph" width="96" height="96">
+</p>
 
-## The pipeline at a glance
+This is the quick mental model for how SQL Glyph turns a selection of SQL into a
+reviewable conversion. It covers the shape of the system, the order of
+operations, who owns each decision, and what the result does and does not mean.
+
+For the code-level walkthrough — exact functions, data shapes, limits, and
+failure handling — see [IN_DEPTH_WORKFLOW.md](./IN_DEPTH_WORKFLOW.md).
+
+---
+
+## 1. What SQL Glyph is
+
+SQL Glyph is a **local-first VS Code extension**. It parses SQL into an abstract
+syntax tree (AST) with [SQLGlot](https://github.com/tobymao/sqlglot), generates
+the same statement in another dialect, and then explains what changed.
+
+It is deliberately two processes:
+
+| Process | Language | Job |
+| --- | --- | --- |
+| VS Code extension host | TypeScript | Commands, editor state, webviews, diagnostics, diff, process lifecycle |
+| Local SQL engine | Python 3.9+ | Parsing, generation, detection, diagnostics, transformation rules, AST serialization |
+
+The Python process is a child of the extension. It has **no database driver, no
+network code, and no SQL execution path**. Communication is newline-delimited
+JSON on `stdin`/`stdout`.
+
+```text
+┌──────────────────────────── VS Code extension host ────────────────────────────┐
+│                                                                                 │
+│  commands ──► services ──► EngineManager ──► PythonBridge ──► stdin            │
+│                    │                              ▲                             │
+│                    ▼                              │                             │
+│              SessionStore ◄── results ◄───────────┘ stdout                     │
+│                    │                                                            │
+│        ┌───────────┼────────────┬──────────────┬───────────────┐               │
+│        ▼           ▼            ▼              ▼               ▼               │
+│   Conversion     AST         Analysis       Status bar     Problems            │
+│   sidebar        sidebar     panel          item           panel               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                     │ JSON Lines
+                                     ▼
+┌──────────────────────────── Local Python engine ───────────────────────────────┐
+│                                                                                 │
+│  main.py ──► protocol.py ──► transpiler.py ──► parser.py ──► SQLGlot AST        │
+│                   │              │                  │                           │
+│                   │              ├──► diagnostics.py    (compatibility rules)  │
+│                   │              ├──► explanations.py   (transformation rules) │
+│                   │              ├──► diff.py           (line diff)            │
+│                   │              └──► ast_serializer.py (safe tree + spans)    │
+│                   │                                                            │
+│                   └──► detection.py (heuristic source dialect)                 │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. The pipeline at a glance
 
 ```mermaid
 flowchart LR
@@ -25,28 +85,237 @@ flowchart LR
     O --> P[User reviews, copies, saves, or explicitly replaces source]
 ```
 
-## What the pipeline guarantees—and what it does not
+The same flow as a sequence:
 
-1. **Source parsing:** SQLGlot attempts to parse the input using the selected source dialect.
-2. **Target generation:** SQLGlot emits SQL using the selected target dialect.
-3. **Behavioral equivalence:** SQL Glyph does **not** prove this. A generated query still needs review and testing against the actual target database and representative data.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant CMD as Command
+    participant CS as ConversionService
+    participant DS as DialectService
+    participant EM as EngineManager
+    participant PB as PythonBridge
+    participant PY as protocol.py
+    participant TR as transpiler.py
+    participant SG as SQLGlot
+    participant UI as Views / Store
 
-Diagnostics and transformation explanations are review aids, not a database execution or formal-equivalence result.
+    U->>CMD: Convert Selected SQL
+    CMD->>CS: convert("selection")
+    CS->>CS: validate editor, text, byte limit
+    CS->>EM: ensureReady(interactive=true)
+    EM->>PB: start + health
+    PB->>PY: {"action":"health"}
+    PY-->>PB: {"health":{"ok":true,...}}
+    CS->>DS: resolveSource(sql)
+    alt configured concrete dialect
+        DS-->>CS: dialect
+    else auto
+        DS->>PY: {"action":"detect_dialect"}
+        PY-->>DS: candidates + confidence
+        DS-->>CS: dialect (or user pick)
+    end
+    CS->>PB: {"action":"transpile", ...}
+    PB->>PY: one JSON line
+    PY->>TR: transpile(sql, source, target)
+    TR->>SG: parse(sql, read=source)
+    SG-->>TR: AST statements
+    TR->>SG: statement.sql(dialect=target)
+    SG-->>TR: generated SQL
+    TR->>TR: diagnostics + transformations + diff (+ AST)
+    TR-->>PY: result dict
+    PY-->>PB: {"success":true, ...}
+    PB-->>CS: typed response
+    CS->>UI: SessionStore, diff, diagnostics, status bar
+    U->>UI: review / copy / save / replace
+```
 
-## Main components
+---
 
-| Layer | Responsibility |
+## 3. The seven stages
+
+### Stage 1 — User action
+
+A command starts the flow: **Convert Selected SQL**, **Convert Entire File**,
+**Compare Dialects**, or **Inspect AST**. Commands are thin. They delegate to a
+service and do not parse or rewrite SQL themselves.
+
+### Stage 2 — Input collection and validation
+
+The service reads the active editor, takes the selection or the whole document,
+and rejects empty input, missing editors, and input over the configured byte
+limit before any process work begins. For a selection it records the document
+offset where the SQL starts; that offset is needed later to map engine spans
+back to the right characters.
+
+### Stage 3 — Dialect resolution
+
+The target is always a concrete dialect. The source may be:
+
+- a configured concrete dialect, used directly; or
+- `auto`, in which case the engine scores dialect markers and parseability and
+  returns candidates, evidence, and confidence.
+
+A high-confidence result proceeds unless `alwaysAsk` is set. Medium and low
+confidence always prompt. **`auto` never reaches the engine's `transpile`
+action** — the protocol rejects it, so the UI cannot silently skip confirmation.
+
+### Stage 4 — Engine readiness
+
+`EngineManager` finds a Python 3.9+ interpreter (configured path → managed venv
+→ `PATH`), starts `sql-engine/main.py` if needed, and sends a `health` request.
+The result is a small state machine: `unconfigured`, `starting`, `ready`,
+`missing-dependency`, `error`, or `stopped`.
+
+Setup is explicit. SQL Glyph never installs Python packages silently; the user
+confirms the venv path and `sqlglot==30.31.0` before `pip` runs.
+
+### Stage 5 — Parse, generate, analyze
+
+Inside Python, `transpile()` does one pass:
+
+1. **Parse** the source with the chosen dialect. Empty input, oversized input,
+   and parser errors become structured engine errors.
+2. **Generate** each statement in the target dialect.
+3. **Diagnose** compatibility risks from the source AST and the generated text.
+4. **Explain** structural rewrites by rendering nodes in both dialects.
+5. **Diff** the original and generated text line by line.
+6. Optionally **serialize** the AST into a bounded, frontend-safe tree.
+
+### Stage 6 — Response and rendering
+
+The engine writes one compact JSON line. The bridge matches it to the request by
+id and resolves the promise. `ConversionService` stores the outcome, publishes
+diagnostics to the Problems panel, updates the status bar, opens a native diff,
+and shows a notification.
+
+### Stage 7 — Review and explicit mutation
+
+Everything after the response is a review surface. Copy, open, save-as, and
+replace are separate actions. **Replace** re-reads the document, checks that the
+original text is still exactly what was converted, asks for modal confirmation,
+then applies a normal undoable edit.
+
+---
+
+## 4. Who owns what
+
+| Layer | Main files | Owns |
+| --- | --- | --- |
+| Activation | `src/extension.ts` | Composition root; constructs and wires every service |
+| Commands | `src/commands/registerCommands.ts` | Palette/menu entry points and the top-level error guard |
+| Engine lifecycle | `src/engine/engineManager.ts` | Readiness state machine, restart, health |
+| Python discovery | `src/engine/pythonDiscovery.ts` | Candidate interpreters, version probing |
+| Python setup | `src/engine/pythonEnvironment.ts` | Managed venv, pinned SQLGlot install, trust checks |
+| Transport | `src/engine/pythonBridge.ts`, `jsonLines.ts` | Spawn, JSONL framing, queue, timeouts, exit handling |
+| Services | `src/services/*.ts` | Conversion, AST, dialects, diagnostics, previews |
+| State | `src/state/sessionStore.ts` | Last conversion/AST and change events |
+| Views | `src/views/*.ts`, `src/webview/html.ts` | Sidebars, analysis panel, status bar, CSP |
+| Types | `src/types/*.ts` | Protocol, dialect, AST, diagnostic, conversion shapes |
+| Engine entry | `sql-engine/main.py` | `sys.path` setup and protocol start |
+| Protocol | `sql-engine/sqlglyph/protocol.py` | Validation, dispatch, response envelope |
+| Engine logic | `parser.py`, `transpiler.py`, `detection.py` | Parse, generate, detect |
+| Analysis | `diagnostics.py`, `explanations.py`, `diff.py` | Compatibility rules, rewrite rules, line diff |
+| AST | `ast_serializer.py`, `positions.py` | Safe tree and UTF-16 spans |
+
+The split is intentional: **the Python engine is authoritative** for dialect
+capabilities, diagnostics, transformation rules, detection, and AST
+serialization. TypeScript mirrors display metadata and owns everything that
+touches VS Code.
+
+---
+
+## 5. What the pipeline guarantees — and what it does not
+
+Three different levels of confidence are easy to conflate:
+
+| Level | Meaning | Who provides it |
+| --- | --- | --- |
+| **Parseable** | SQLGlot recognized the input under the chosen source grammar | SQLGlot parser |
+| **Generated** | SQLGlot emitted text for the requested target dialect | SQLGlot generator |
+| **Behavior-preserving** | The target database accepts the SQL and produces the intended results | Nobody — you must verify |
+
+SQL Glyph directly supports the first two. It provides diagnostics and
+explanations to help with the third, but **it never establishes it**. A
+conversion can be `success: true` at the protocol level and still carry an
+overall status of `unsupported` because a rule found a construct the target
+likely rejects.
+
+Diagnostics and transformation explanations are review aids, not a database
+execution or formal-equivalence result.
+
+---
+
+## 6. Status and uncertainty
+
+The overall status is derived, not asserted:
+
+```python
+def _status(diagnostics):
+    if any(item["severity"] == "error" for item in diagnostics):
+        return "unsupported"
+    if any(item["severity"] == "warning" for item in diagnostics):
+        return "warning"
+    return "success"
+```
+
+- **SUCCESS** — parsed and generated, no compatibility diagnostics.
+- **WARNING** — generated, but at least one risk needs review.
+- **UNSUPPORTED** — generated output is known to be invalid/unsupported for the
+  target, or the request failed.
+
+Transformation explanations follow the same honesty rule. A rewrite either
+matches a known rule or is reported as `unexplained`. SQL Glyph never invents a
+reason for a difference it does not recognize.
+
+---
+
+## 7. Failure summary
+
+| Failure | Detected by | Effect |
+| --- | --- | --- |
+| No editor, empty input, oversized input | Conversion service | Stop before the request; user-facing message |
+| Ambiguous / low-confidence source | Dialect service | Ask the user; never proceed on a guess |
+| Python missing | Environment / engine manager | Mark `unconfigured`; offer setup when interactive |
+| SQLGlot missing | Health check | Mark `missing-dependency`; explicit setup only |
+| Invalid protocol payload | Python protocol layer | Structured `INVALID_REQUEST` / `UNKNOWN_ACTION` |
+| Parse failure | Parser | `PARSE_ERROR` with line/column/context |
+| Generation failure | Transpiler | `GENERATION_ERROR` with statement index |
+| Request timeout | Python bridge | Reject; an active-request timeout kills the process |
+| Process exit | Bridge / engine manager | Fail pending work; next request restarts |
+
+The extension's command guard catches anything that escapes, logs the stack to
+the **SQL Glyph** output channel, and offers **Set Up Engine** or **Show Output**.
+
+---
+
+## 8. Design principles
+
+- **Local processing.** SQL is parsed in a local subprocess. There is no hosted
+  translation service, no telemetry, and no database connection.
+- **AST-powered, not regex-powered.** Every conversion is parsed and generated
+  by SQLGlot.
+- **Explicit dialects.** `auto` is a source-selection convenience; the engine
+  receives a concrete dialect.
+- **Review before replacement.** Replacing source is a separate, modal,
+  undoable operation guarded by a content check.
+- **Structured uncertainty.** Known rewrites get explanations; unknown ones stay
+  unexplained.
+- **No silent assumptions.** Ambiguous detection always prompts.
+- **No session simulation.** Statements are converted independently; temporary
+  tables, variables, transactions, and DDL dependencies are not tracked.
+- **Bounded payloads.** Diagnostics, transformations, diff rows, AST nodes,
+  depth, and snippet sizes all have explicit caps.
+
+---
+
+## 9. Where to go next
+
+| If you want to… | Read |
 | --- | --- |
-| VS Code commands and views | Start the user action and display the conversion, diff, and analysis. |
-| `src/services/` | Orchestrate input selection, dialect choice, conversion, and editor diagnostics. |
-| `src/engine/` | Locate Python, start/reuse the engine process, and exchange JSON Lines messages. |
-| `sql-engine/main.py` and `sql-engine/sqlglyph/` | Validate requests, detect dialects, parse SQL, generate target SQL, and analyze results. |
-| Tests and shared fixtures | Check protocol, engine behavior, and the extension-facing contract. |
-
-## Important design principles
-
-- **Local processing:** SQL is sent to the local Python engine; the extension does not require a hosted translation service.
-- **Explicit dialects:** `auto` is a source-selection convenience. The engine receives a concrete source dialect for conversion.
-- **Review before replacement:** Conversion output is presented for review. Replacing the source is a separate, deliberate editor operation.
-- **Structured uncertainty:** Recognized rewrites can have explanations; unrecognized differences remain unexplained instead of being presented as certain.
-- **No session simulation:** Separate statements are converted as input statements; SQL Glyph does not emulate a live database session or resolve runtime dependencies between statements.
+| Understand the exact code path | [IN_DEPTH_WORKFLOW.md](./IN_DEPTH_WORKFLOW.md) |
+| See user-facing behavior and settings | [../README.md](../README.md) |
+| Change a dialect rule | `sql-engine/sqlglyph/diagnostics.py`, `explanations.py` |
+| Change the wire format | `src/types/protocol.ts`, `sql-engine/sqlglyph/protocol.py` |
+| Change editor behavior | `src/services/conversionService.ts`, `src/views/` |
