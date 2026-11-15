@@ -2,7 +2,7 @@
   "name": "sql-glyph",
   "displayName": "SQL Glyph",
   "description": "Convert, format, and inspect SQL across 16 dialects locally. No database connection or query execution.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "sqlglyph",
   "license": "MIT",
   "repository": {
@@ -412,7 +412,7 @@
     "test:coverage": "npm run test:python:coverage && vitest run --coverage",
     "test": "npm run test:python && npm run test:unit && npm run test:integration",
     "package": "npm run compile && vsce package --no-dependencies",
-    "package:vsix": "npm run compile && vsce package --no-dependencies -o sql-glyph-0.2.1.vsix"
+    "package:vsix": "npm run compile && vsce package --no-dependencies -o sql-glyph-0.2.2.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

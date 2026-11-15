@@ -422,7 +422,7 @@ def _engine_version() -> str:
 
         return str(__version__)
     except Exception:
-        return "0.1.0"
+        return "0.2.2"
 
 
 def _python_version() -> str:

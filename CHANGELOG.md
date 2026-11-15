@@ -2,17 +2,19 @@
 
 All notable changes to SQL Glyph are documented here.
 
-## [0.2.1] - 2026-11-15
-
-### Changed
-
-- Replaced em dashes with plain punctuation in the Marketplace description, README, documentation, and in-product strings.
+## [0.2.2] - 2026-11-15
 
 ### Fixed
 
 - ClickHouse `count()` is normalized to `COUNT(*)` when the target requires an argument.
 - QUALIFY diagnostics no longer report an error after SQLGlot rewrites the clause into a subquery, and Redshift is recognized as supporting QUALIFY.
 - Conversions that would emit invalid target functions are now reported as unsupported instead of success: `from_unixtime`, approximate-distinct, EXPLODE and LATERAL VIEW, and empty generated expressions.
+
+## [0.2.1] - 2026-11-15
+
+### Changed
+
+- Replaced em dashes with plain punctuation in the Marketplace description, README, documentation, and in-product strings.
 
 ## [0.2.0] - 2026-11-15
 

@@ -6,7 +6,7 @@ that shape the result. It is the code-level companion to
 [HIGH_LEVEL_WORKFLOW.md](./HIGH_LEVEL_WORKFLOW.md).
 
 All paths are relative to the repository root. Line references are for the
-`0.1.0` code and may drift as the code evolves; the function and file names are
+`0.2.2` code and may drift as the code evolves; the function and file names are
 the stable anchors.
 
 ---
@@ -1437,7 +1437,7 @@ python -m pytest
 ### 20.3 Package
 
 `npm run package:vsix` runs the compile step and produces
-`sql-glyph-0.2.1.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
+`sql-glyph-0.2.2.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
 README/CHANGELOG/LICENSE, and excludes source, tests, maps, caches, and docs.
 
 The Marketplace icon and analysis panel use `media/icons/icon.png`. The

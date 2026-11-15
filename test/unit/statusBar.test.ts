@@ -68,7 +68,7 @@ function result(
       pretty: true,
       elapsedMs: 1,
       sqlglotVersion: '30.31.0',
-      engineVersion: '0.2.1',
+      engineVersion: '0.2.2',
       executed: false,
       databaseConnected: false,
       semanticallyVerified: false,
