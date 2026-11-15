@@ -124,7 +124,7 @@ describeEngine('real Python engine bridge', () => {
 
     expect(response.pong).toBe(true);
     expect(response.engine.name).toBe('sql-glyph-engine');
-    expect(response.engine.version).toBe('0.1.0');
+    expect(response.engine.version).toBe('0.2.1');
     expect([...response.dialects].sort()).toEqual([...DIALECT_IDS].sort());
   });
 

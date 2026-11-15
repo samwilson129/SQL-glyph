@@ -33,7 +33,7 @@ function result(status: ConversionResult['status'] = 'success'): ConversionResul
       pretty: true,
       elapsedMs: 1,
       sqlglotVersion: '30.31.0',
-      engineVersion: '0.2.0',
+      engineVersion: '0.2.1',
       executed: false,
       databaseConnected: false,
       semanticallyVerified: false,

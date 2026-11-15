@@ -1436,7 +1436,7 @@ python -m pytest
 ### 20.3 Package
 
 `npm run package:vsix` runs the compile step and produces
-`sql-glyph-0.2.0.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
+`sql-glyph-0.2.1.vsix`. `.vscodeignore` ships `dist/`, `sql-engine/`, `media/`,
 README/CHANGELOG/LICENSE, and excludes source, tests, maps, caches, and docs.
 
 The Marketplace icon and analysis panel use `media/icons/icon.png`. The

@@ -2,6 +2,30 @@
 
 All notable changes to SQL Glyph are documented here.
 
+## [0.2.1] - 2026-11-15
+
+### Changed
+
+- Replaced em dashes with plain punctuation in the Marketplace description, README, documentation, and in-product strings.
+
+## [0.2.0] - 2026-11-15
+
+### Added
+
+- Six additional dialects: Amazon Redshift, ClickHouse, Databricks SQL, Apache Hive, Presto, and Teradata (16 total).
+- **Format SQL** command for the selection or the whole file.
+- CodeLens shortcuts for Convert, Format, and Inspect AST, plus Quick Fix and refactor actions.
+- Partial conversion results: statements that succeed are returned with per-statement errors for the rest.
+- Round-trip parse verification of generated SQL against the target grammar.
+- Cancellable conversions with progress reporting.
+- In-memory conversion cache and restoration of the last conversion across workspace reloads.
+- Tests covering partial parsing, round-trip verification, caching, cancellation, persistence, and providers.
+
+### Changed
+
+- Marketplace README rewritten around capabilities and usage, with architecture details kept in `docs/`.
+- The cat artwork is now used for the extension icon, analysis panel, activity bar, webviews, and documentation.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added
