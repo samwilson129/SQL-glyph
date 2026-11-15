@@ -882,9 +882,10 @@ will see include:
 | Ordering | `null-ordering` |
 | Windows | `window-functions` |
 | MERGE | `merge-semantics`, `merge-unsupported` |
-| QUALIFY | `qualify-support`, `qualify-unsupported` |
+| QUALIFY | `qualify-support`, `qualify-rewritten`, `qualify-unsupported` |
 | Pagination | `pagination`, `pagination-without-order` |
 | Vendor syntax | `vendor-clause`, `vendor-construct`, `unmapped-function`, `stored-procedure` |
+| Known bad output | `from-unixtime-unsupported`, `approx-distinct-unsupported`, `explode-unsupported`, `lateral-view-unsupported`, `empty-generated-expression` |
 | Engine | `sqlglot-warning` |
 
 The analyzer is deliberately conservative: a successful generation does not

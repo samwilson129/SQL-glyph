@@ -281,7 +281,7 @@ _DIALECTS: List[DialectInfo] = [
             supports_nulls_ordering=True,
             supports_recursive_keyword=True,
             supports_merge=True,
-            supports_qualify=False,
+            supports_qualify=True,
             supports_try_cast=True,
             supports_interval_literal=True,
         ),

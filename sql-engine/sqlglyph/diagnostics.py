@@ -179,6 +179,33 @@ def _type_name(node: Any) -> str:
         return ""
 
 
+def _has_keyword(sql_text: str, keyword: str, dialect: str) -> bool:
+    """Return True when ``keyword`` survives as a real token in the output.
+
+    SQLGlot rewrites some constructs (QUALIFY, for example) into portable
+    subqueries.  Inspecting the generated tokens avoids claiming that a
+    keyword remains when it was actually removed.
+    """
+    try:
+        import sqlglot
+        from sqlglot.tokens import TokenType
+
+        wanted = getattr(TokenType, keyword.upper(), None)
+        if wanted is None:
+            raise ValueError(keyword)
+        return any(
+            token.token_type == wanted
+            for token in sqlglot.Dialect.get_or_raise(dialect).tokenize(sql_text)
+        )
+    except Exception:
+        return (
+            re.search(
+                r"\b{}\b".format(re.escape(keyword)), sql_text, flags=re.IGNORECASE
+            )
+            is not None
+        )
+
+
 def _first(statements: List[Any], type_name: str) -> Optional[Any]:
     for statement in statements:
         for node in statement.walk():
@@ -472,7 +499,17 @@ def build_diagnostics(
     # --- QUALIFY --------------------------------------------------------------
     for node in nodes:
         if _type_name(node) == "Qualify":
-            if not target_traits.supports_qualify:
+            if target_traits.supports_qualify:
+                builder.add(
+                    "warning",
+                    "vendor_specific",
+                    "QUALIFY support is version-dependent. Verify that the target version accepts this clause.",
+                    "qualify-support",
+                    node=node,
+                    expression=_sql(node, source),
+                    confidence="medium",
+                )
+            elif _has_keyword(converted_sql, "QUALIFY", target):
                 builder.add(
                     "error",
                     "vendor_specific",
@@ -487,11 +524,13 @@ def build_diagnostics(
                 builder.add(
                     "warning",
                     "vendor_specific",
-                    "QUALIFY support is version-dependent. Verify that the target version accepts this clause.",
-                    "qualify-support",
+                    "QUALIFY is not supported by the target dialect. SQLGlot rewrote it into a subquery with a "
+                    "window filter; review the generated statement.",
+                    "qualify-rewritten",
                     node=node,
                     expression=_sql(node, source),
-                    confidence="medium",
+                    detail="The generated SQL no longer contains a QUALIFY clause.",
+                    confidence="high",
                 )
             break
 
@@ -565,6 +604,96 @@ def build_diagnostics(
             )
 
     # --- Known SQLGlot output limitations ------------------------------------
+    if re.search(
+        r"\bSELECT\s+AS\b|\bLATERAL\s+VIEW\s+AS\b", converted_sql, flags=re.IGNORECASE
+    ):
+        builder.add(
+            "error",
+            "unsupported_syntax",
+            "SQLGlot generated an empty expression. The target statement is not valid SQL and must be "
+            "rewritten manually.",
+            "empty-generated-expression",
+            detail="This output should not be run.",
+            confidence="high",
+        )
+
+    if "UnixToStr" in types and target not in {
+        "duckdb",
+        "trino",
+        "presto",
+        "spark",
+        "databricks",
+        "hive",
+    }:
+        node = _first(statements, "UnixToStr")
+        builder.add(
+            "error",
+            "date_time",
+            "The target dialect has no verified mapping for from_unixtime. SQLGlot generated UNIX_TO_STR, "
+            "which is not a target function. Rewrite the expression with a target-specific timestamp function.",
+            "from-unixtime-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if "ApproxDistinct" in types and target in {
+        "postgres",
+        "mysql",
+        "tsql",
+        "oracle",
+        "sqlite",
+        "teradata",
+    }:
+        node = _first(statements, "ApproxDistinct")
+        builder.add(
+            "error",
+            "functions",
+            "The target dialect has no verified approximate-distinct equivalent. The generated function may "
+            "not exist or may behave differently. Rewrite it with COUNT(DISTINCT ...) or a target-specific "
+            "approximation.",
+            "approx-distinct-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without review.",
+            confidence="high",
+        )
+
+    if "Lateral" in types and re.search(
+        r"\bLATERAL\s+VIEW\b", converted_sql, flags=re.IGNORECASE
+    ):
+        node = _first(statements, "Lateral")
+        builder.add(
+            "error",
+            "arrays",
+            "LATERAL VIEW is Hive-family syntax and remains in the generated SQL. The target dialect does not "
+            "accept it. Rewrite the array expansion with a target-specific construct.",
+            "lateral-view-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if (
+        types.intersection({"Explode", "ExplodeOuter"})
+        and "Lateral" not in types
+        and target in {"mysql", "tsql", "oracle", "sqlite", "teradata", "redshift"}
+    ):
+        node = _first(statements, "Explode") or _first(statements, "ExplodeOuter")
+        builder.add(
+            "error",
+            "arrays",
+            "The target dialect has no verified mapping for EXPLODE. The generated SQL may not be valid. "
+            "Rewrite the array expansion with a target-specific construct.",
+            "explode-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
     if target == "tsql" and re.search(r"\bINTERVAL\s+'", converted_sql, flags=re.IGNORECASE):
         node = _first(statements, "Interval")
         builder.add(

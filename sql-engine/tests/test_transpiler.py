@@ -224,3 +224,79 @@ def test_split_statement_chunks_handles_dollar_quotes():
     chunks = split_statement_chunks(sql)
     assert len(chunks) == 2
     assert "SELECT 1;" in chunks[0][1]
+
+def test_clickhouse_zero_argument_count_is_normalized():
+    result = transpile("SELECT count() AS n FROM t", "clickhouse", "postgres", pretty=False)
+    assert result["convertedSql"] == "SELECT COUNT(*) AS n FROM t"
+    assert result["status"] == "success"
+
+    same = transpile("SELECT count() AS n FROM t", "clickhouse", "clickhouse", pretty=False)
+    assert same["convertedSql"] == "SELECT count() AS n FROM t"
+
+
+def test_qualify_rewrite_is_reported_as_warning_not_error():
+    result = transpile(
+        "SELECT id FROM users QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY created_at DESC) = 1",
+        "redshift",
+        "postgres",
+        pretty=False,
+    )
+    assert result["status"] == "warning"
+    rules = _rule_ids(result)
+    assert "qualify-rewritten" in rules
+    assert "qualify-unsupported" not in rules
+    assert "QUALIFY" not in result["convertedSql"].upper()
+
+
+def test_redshift_keeps_qualify_and_warns():
+    result = transpile(
+        "SELECT * FROM t QUALIFY ROW_NUMBER() OVER (ORDER BY b) = 1",
+        "postgres",
+        "redshift",
+        pretty=False,
+    )
+    assert result["status"] == "warning"
+    assert "QUALIFY" in result["convertedSql"].upper()
+    assert "qualify-support" in _rule_ids(result)
+
+
+def test_from_unixtime_without_a_target_mapping_is_unsupported():
+    result = transpile("SELECT from_unixtime(ts) AS ts FROM t", "hive", "postgres", pretty=False)
+    assert result["status"] == "unsupported"
+    assert "from-unixtime-unsupported" in _rule_ids(result)
+
+    duckdb = transpile("SELECT from_unixtime(ts) AS ts FROM t", "hive", "duckdb", pretty=False)
+    assert duckdb["status"] == "success"
+    assert "STRFTIME" in duckdb["convertedSql"]
+
+def test_approx_distinct_without_a_target_mapping_is_unsupported():
+    bad = transpile("SELECT approx_distinct(user_id) AS n FROM t", "presto", "postgres", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "approx-distinct-unsupported" in _rule_ids(bad)
+
+    good = transpile("SELECT approx_distinct(user_id) AS n FROM t", "presto", "bigquery", pretty=False)
+    assert good["status"] == "success"
+    assert "APPROX_COUNT_DISTINCT" in good["convertedSql"]
+
+
+def test_explode_without_a_target_mapping_is_unsupported():
+    bad = transpile("SELECT explode(tags) AS tag FROM t", "databricks", "mysql", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "explode-unsupported" in _rule_ids(bad)
+
+    good = transpile("SELECT explode(tags) AS tag FROM t", "databricks", "postgres", pretty=False)
+    assert good["status"] == "warning"
+    assert "UNNEST" in good["convertedSql"]
+
+def test_lateral_view_is_flagged_only_when_it_remains():
+    bad = transpile(
+        "SELECT id FROM t LATERAL VIEW explode(tags) x AS tag", "hive", "bigquery", pretty=False
+    )
+    assert bad["status"] == "unsupported"
+    assert "lateral-view-unsupported" in _rule_ids(bad)
+
+    good = transpile(
+        "SELECT id FROM t LATERAL VIEW explode(tags) x AS tag", "hive", "duckdb", pretty=False
+    )
+    assert "CROSS JOIN UNNEST" in good["convertedSql"]
+    assert "lateral-view-unsupported" not in _rule_ids(good)

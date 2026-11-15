@@ -25,12 +25,41 @@ from .positions import PositionMapper
 
 try:
     import sqlglot
+    from sqlglot import exp
     from sqlglot.errors import ParseError, TokenError, UnsupportedError
 except Exception:  # pragma: no cover
     sqlglot = None  # type: ignore[assignment]
+    exp = None  # type: ignore[assignment]
     ParseError = Exception  # type: ignore[assignment,misc]
     TokenError = Exception  # type: ignore[assignment,misc]
     UnsupportedError = Exception  # type: ignore[assignment,misc]
+
+
+def _prepare_statement(statement: Any, source: str, target: str) -> Any:
+    """Apply narrow, semantics-preserving fixes before generation.
+
+    SQLGlot 30.31.0 emits ``COUNT()`` when converting ClickHouse's
+    zero-argument ``count()`` to most targets, which is invalid SQL outside
+    ClickHouse.  Normalize it to ``COUNT(*)`` on a copy so source-side
+    diagnostics still describe the original statement.
+    """
+    if exp is None or source != "clickhouse" or target == "clickhouse":
+        return statement
+    try:
+        empty_counts = [
+            node
+            for node in statement.find_all(exp.Count)
+            if node.this is None and not node.expressions
+        ]
+    except Exception:  # pragma: no cover - defensive
+        return statement
+    if not empty_counts:
+        return statement
+    prepared = statement.copy()
+    for node in prepared.find_all(exp.Count):
+        if node.this is None and not node.expressions:
+            node.set("this", exp.Star())
+    return prepared
 
 
 def _join_statements(generated: List[str], original: str, pretty: bool) -> str:
@@ -44,6 +73,7 @@ def _join_statements(generated: List[str], original: str, pretty: bool) -> str:
 def _generate_statements(
     statements: List[Any],
     indices: List[int],
+    source: str,
     target: str,
     pretty: bool,
     mapper: PositionMapper,
@@ -60,7 +90,9 @@ def _generate_statements(
     for position, statement in enumerate(statements):
         index = indices[position] if position < len(indices) else position
         try:
-            sql = statement.sql(dialect=target, pretty=pretty)
+            sql = _prepare_statement(statement, source, target).sql(
+                dialect=target, pretty=pretty
+            )
             generated.append((index, statement, sql))
         except (UnsupportedError, ParseError) as exc:
             errors.append(
@@ -232,6 +264,7 @@ def transpile(
         generated_items, generation_errors = _generate_statements(
             outcome.statements,
             outcome.statement_indices,
+            source,
             target,
             pretty,
             mapper,
