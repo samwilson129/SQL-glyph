@@ -1,6 +1,6 @@
 # SQL Glyph
 
-**Convert, format, and inspect SQL across 16 dialects — locally.**
+**Convert, format, and inspect SQL across 16 dialects, locally.**
 
 SQL Glyph is a VS Code extension for moving SQL between databases. It parses your SQL into a syntax tree, generates the target dialect, explains what changed, flags compatibility risks, and shows a native diff. Everything runs on your machine. No database connection, no query execution, no telemetry.
 
@@ -88,10 +88,10 @@ The AST Explorer shows the parse tree with node types, labels, grouped child rol
 
 The analysis panel separates:
 
-- **Diagnostics** — compatibility risks and errors with category, rule ID, confidence, and source location.
-- **Transformations** — observed rewrites with the original and converted snippet, a rule-based explanation when available, and `unexplained` when not.
-- **Diff** — a line-level comparison of input and output.
-- **Metadata** — dialect pair, statement counts, partial/round-trip status, elapsed time, versions, and the explicit flags `executed: false`, `databaseConnected: false`, and `semanticallyVerified: false`.
+- **Diagnostics**: compatibility risks and errors with category, rule ID, confidence, and source location.
+- **Transformations**: observed rewrites with the original and converted snippet, a rule-based explanation when available, and `unexplained` when not.
+- **Diff**: a line-level comparison of input and output.
+- **Metadata**: dialect pair, statement counts, partial/round-trip status, elapsed time, versions, and the explicit flags `executed: false`, `databaseConnected: false`, and `semanticallyVerified: false`.
 
 ## Status and diagnostics
 
@@ -143,8 +143,8 @@ If a conversion matters, review the analysis panel and test the generated SQL ag
 
 ## Documentation
 
-- **[High-level workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/HIGH_LEVEL_WORKFLOW.md)** — how SQL Glyph is put together, the conversion pipeline, layer ownership, guarantees, and failure handling.
-- **[In-depth pipeline workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/IN_DEPTH_WORKFLOW.md)** — the code-level walkthrough for contributors: activation, commands, detection, engine lifecycle, transport, protocol dispatch, parsing, generation, diagnostics, AST serialization, span mapping, webviews, persistence, caching, and packaging.
+- **[High-level workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/HIGH_LEVEL_WORKFLOW.md)**: how SQL Glyph is put together, the conversion pipeline, layer ownership, guarantees, and failure handling.
+- **[In-depth pipeline workflow](https://github.com/samwilson129/SQL-glyph/blob/main/docs/IN_DEPTH_WORKFLOW.md)**: the code-level walkthrough for contributors, covering activation, commands, detection, engine lifecycle, transport, protocol dispatch, parsing, generation, diagnostics, AST serialization, span mapping, webviews, persistence, caching, and packaging.
 
 ## Requirements
 

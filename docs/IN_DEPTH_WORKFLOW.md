@@ -201,10 +201,10 @@ is a command invocation, so the explicit-confirmation rule still applies.
 `ConversionService.convert()` is the orchestrator
 (`src/services/conversionService.ts`). Its checks run in a deliberate order:
 
-1. **Active editor** — otherwise warn and return.
-2. **Busy flag** — one conversion at a time.
-3. **Selection required** — an empty selection for a selection command warns.
-4. **Non-blank text** — whitespace-only input warns.
+1. **Active editor**: otherwise warn and return.
+2. **Busy flag**: one conversion at a time.
+3. **Selection required**: an empty selection for a selection command warns.
+4. **Non-blank text**: whitespace-only input warns.
 5. **Byte limit**:
 
 ```ts
@@ -534,7 +534,7 @@ protocol.
 | Active request aborts | Reject, log, kill the process | `ABORTED` |
 | Write fails | Reject active, terminate | `ENGINE_STOPPED` |
 | Process exits | Reject all pending, emit `onExit` | `ENGINE_STOPPED` |
-| `stop()` | Send `shutdown`, wait 1.5 s, then kill | — |
+| `stop()` | Send `shutdown`, wait 1.5 s, then kill | n/a |
 | `dispose()` | Mark disposed, call `stop()` | `DISPOSED` |
 
 An active-request timeout or abort kills the process because the bridge cannot
@@ -1395,10 +1395,10 @@ creation and dependency installation are blocked in an untrusted workspace.
 
 ### 20.1 Test suites
 
-- **Python** — 112 pytest tests against the real engine:
+- **Python**: 112 pytest tests against the real engine:
   `sql-engine/tests/`.
-- **Unit** — 86 Vitest tests with a mocked VS Code API: `test/unit/`.
-- **Integration** — 44 tests spawning the real `main.py` over the real JSONL
+- **Unit**: 86 Vitest tests with a mocked VS Code API: `test/unit/`.
+- **Integration**: 44 tests spawning the real `main.py` over the real JSONL
   protocol, including all shared fixtures: `test/integration/`.
 
 Coverage is available for both layers:
@@ -1475,29 +1475,29 @@ PNG.
 
 Entry points for exploring the implementation:
 
-- `src/extension.ts` — activation and composition root.
-- `src/commands/registerCommands.ts` — command registration and error guard.
-- `src/services/conversionService.ts` — conversion orchestration.
-- `src/services/astService.ts` — AST inspection and reveal.
-- `src/services/dialectService.ts` — configured/automatic dialect selection.
-- `src/services/diagnosticService.ts` — Problems panel publishing.
-- `src/services/previewProvider.ts` — in-memory previews and native diff.
-- `src/services/conversionCache.ts` — in-memory conversion cache.
-- `src/state/sessionStore.ts` — last conversion/AST state, events, persistence.
-- `src/providers/codeLensProvider.ts` — top-of-file CodeLens actions.
-- `src/providers/codeActionProvider.ts` — Quick Fix and refactor actions.
-- `src/engine/engineManager.ts` — readiness, health, restart.
-- `src/engine/pythonBridge.ts` — JSONL framing, queue, timeouts, cancellation.
-- `src/engine/pythonEnvironment.ts`, `pythonDiscovery.ts` — setup and discovery.
-- `src/views/` — conversion sidebar, AST sidebar, analysis panel, status bar.
-- `src/webview/html.ts` — CSP-safe HTML builder.
-- `sql-engine/main.py` — Python process entry point.
-- `sql-engine/sqlglyph/protocol.py` — validation, dispatch, error envelope.
-- `sql-engine/sqlglyph/parser.py` — parsing and parse errors.
-- `sql-engine/sqlglyph/transpiler.py` — pipeline and generation.
-- `sql-engine/sqlglyph/detection.py` — heuristic dialect detection.
-- `sql-engine/sqlglyph/diagnostics.py` — compatibility rules.
-- `sql-engine/sqlglyph/explanations.py` — transformation rules.
-- `sql-engine/sqlglyph/ast_serializer.py` — bounded AST representation.
-- `sql-engine/sqlglyph/positions.py` — UTF-16 span mapping.
-- `test/` and `sql-engine/tests/` — extension and engine tests.
+- `src/extension.ts`: activation and composition root.
+- `src/commands/registerCommands.ts`: command registration and error guard.
+- `src/services/conversionService.ts`: conversion orchestration.
+- `src/services/astService.ts`: AST inspection and reveal.
+- `src/services/dialectService.ts`: configured/automatic dialect selection.
+- `src/services/diagnosticService.ts`: Problems panel publishing.
+- `src/services/previewProvider.ts`: in-memory previews and native diff.
+- `src/services/conversionCache.ts`: in-memory conversion cache.
+- `src/state/sessionStore.ts`: last conversion/AST state, events, persistence.
+- `src/providers/codeLensProvider.ts`: top-of-file CodeLens actions.
+- `src/providers/codeActionProvider.ts`: Quick Fix and refactor actions.
+- `src/engine/engineManager.ts`: readiness, health, restart.
+- `src/engine/pythonBridge.ts`: JSONL framing, queue, timeouts, cancellation.
+- `src/engine/pythonEnvironment.ts`, `pythonDiscovery.ts`: setup and discovery.
+- `src/views/`: conversion sidebar, AST sidebar, analysis panel, status bar.
+- `src/webview/html.ts`: CSP-safe HTML builder.
+- `sql-engine/main.py`: Python process entry point.
+- `sql-engine/sqlglyph/protocol.py`: validation, dispatch, error envelope.
+- `sql-engine/sqlglyph/parser.py`: parsing and parse errors.
+- `sql-engine/sqlglyph/transpiler.py`: pipeline and generation.
+- `sql-engine/sqlglyph/detection.py`: heuristic dialect detection.
+- `sql-engine/sqlglyph/diagnostics.py`: compatibility rules.
+- `sql-engine/sqlglyph/explanations.py`: transformation rules.
+- `sql-engine/sqlglyph/ast_serializer.py`: bounded AST representation.
+- `sql-engine/sqlglyph/positions.py`: UTF-16 span mapping.
+- `test/` and `sql-engine/tests/`: extension and engine tests.

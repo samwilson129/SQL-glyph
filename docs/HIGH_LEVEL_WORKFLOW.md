@@ -8,8 +8,8 @@ This is the quick mental model for how SQL Glyph turns a selection of SQL into a
 reviewable conversion. It covers the shape of the system, the order of
 operations, who owns each decision, and what the result does and does not mean.
 
-For the code-level walkthrough — exact functions, data shapes, limits, and
-failure handling — see [IN_DEPTH_WORKFLOW.md](./IN_DEPTH_WORKFLOW.md).
+For the code-level walkthrough (exact functions, data shapes, limits, and
+failure handling), see [IN_DEPTH_WORKFLOW.md](./IN_DEPTH_WORKFLOW.md).
 
 ---
 
@@ -138,7 +138,7 @@ sequenceDiagram
 
 ## 3. The seven stages
 
-### Stage 1 — User action
+### Stage 1: User action
 
 A command starts the flow: **Convert Selected SQL**, **Convert Entire File**,
 **Convert to Target Dialect**, **Format SQL**, **Compare Dialects**, or
@@ -146,7 +146,7 @@ A command starts the flow: **Convert Selected SQL**, **Convert Entire File**,
 on SQL Glyph diagnostics invoke the same commands. Commands are thin. They
 delegate to a service and do not parse or rewrite SQL themselves.
 
-### Stage 2 — Input collection and validation
+### Stage 2: Input collection and validation
 
 The service reads the active editor, takes the selection or the whole document,
 and rejects empty input, missing editors, and input over the configured byte
@@ -154,7 +154,7 @@ limit before any process work begins. For a selection it records the document
 offset where the SQL starts; that offset is needed later to map engine spans
 back to the right characters.
 
-### Stage 3 — Dialect resolution
+### Stage 3: Dialect resolution
 
 The target is always a concrete dialect. The source may be:
 
@@ -164,9 +164,9 @@ The target is always a concrete dialect. The source may be:
 
 A high-confidence result proceeds unless `alwaysAsk` is set. Medium and low
 confidence always prompt. **`auto` never reaches the engine's `transpile`
-action** — the protocol rejects it, so the UI cannot silently skip confirmation.
+action**, and the protocol rejects it, so the UI cannot silently skip confirmation.
 
-### Stage 4 — Engine readiness
+### Stage 4: Engine readiness
 
 `EngineManager` finds a Python 3.9+ interpreter (configured path → managed venv
 → `PATH`), starts `sql-engine/main.py` if needed, and sends a `health` request.
@@ -176,7 +176,7 @@ The result is a small state machine: `unconfigured`, `starting`, `ready`,
 Setup is explicit. SQL Glyph never installs Python packages silently; the user
 confirms the venv path and `sqlglot==30.31.0` before `pip` runs.
 
-### Stage 5 — Parse, generate, analyze
+### Stage 5: Parse, generate, analyze
 
 Inside Python, `transpile()` does one pass:
 
@@ -197,7 +197,7 @@ If every statement fails, the request returns the usual structured error
 envelope. If some succeed, the response contains the successful output, a
 `statementErrors` list, and an overall status of **Unsupported**.
 
-### Stage 6 — Response and rendering
+### Stage 6: Response and rendering
 
 The engine writes one compact JSON line. The bridge matches it to the request by
 id and resolves the promise. `ConversionService` checks a small in-memory cache
@@ -208,7 +208,7 @@ and shows a notification.
 The last conversion is persisted in workspace state so reopening the workspace
 restores the analysis panel and review actions. The AST is not persisted.
 
-### Stage 7 — Review and explicit mutation
+### Stage 7: Review and explicit mutation
 
 Everything after the response is a review surface. Copy, open, save-as, and
 replace are separate actions. **Replace** re-reads the document, checks that the
@@ -262,7 +262,7 @@ touches VS Code.
 
 ---
 
-## 5. What the pipeline guarantees — and what it does not
+## 5. What the pipeline guarantees, and what it does not
 
 Three different levels of confidence are easy to conflate:
 
@@ -270,7 +270,7 @@ Three different levels of confidence are easy to conflate:
 | --- | --- | --- |
 | **Parseable** | SQLGlot recognized the input under the chosen source grammar | SQLGlot parser |
 | **Generated** | SQLGlot emitted text for the requested target dialect | SQLGlot generator |
-| **Behavior-preserving** | The target database accepts the SQL and produces the intended results | Nobody — you must verify |
+| **Behavior-preserving** | The target database accepts the SQL and produces the intended results | Nobody. You must verify |
 
 SQL Glyph directly supports the first two. It provides diagnostics and
 explanations to help with the third, but **it never establishes it**. A
@@ -296,9 +296,9 @@ def _status(diagnostics):
     return "success"
 ```
 
-- **SUCCESS** — parsed and generated, no compatibility diagnostics.
-- **WARNING** — generated, but at least one risk needs review.
-- **UNSUPPORTED** — generated output is known to be invalid/unsupported for the
+- **SUCCESS**: parsed and generated, no compatibility diagnostics.
+- **WARNING**: generated, but at least one risk needs review.
+- **UNSUPPORTED**: generated output is known to be invalid/unsupported for the
   target, or the request failed.
 
 Transformation explanations follow the same honesty rule. A rewrite either

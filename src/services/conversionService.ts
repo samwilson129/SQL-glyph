@@ -240,7 +240,7 @@ export class ConversionService {
         }
         this.output.appendLine(
           `[${action}] ${response.error.code}: ${response.error.message}${
-            response.error.hint ? ` — ${response.error.hint}` : ''
+            response.error.hint ? ` (${response.error.hint})` : ''
           }`
         );
         await this.showFailure(response.error.code, response.error.message, response.error.hint);

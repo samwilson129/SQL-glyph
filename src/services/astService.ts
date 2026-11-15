@@ -92,7 +92,7 @@ export class AstService {
       if (!response.success) {
         this.output.appendLine(
           `[ast] ${response.error.code}: ${response.error.message}${
-            response.error.hint ? ` — ${response.error.hint}` : ''
+            response.error.hint ? ` (${response.error.hint})` : ''
           }`
         );
         if (response.diagnostics && response.diagnostics.length > 0) {

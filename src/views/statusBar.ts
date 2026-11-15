@@ -41,7 +41,7 @@ export class StatusBarController implements vscode.Disposable {
     this.item.text = '$(symbol-structure) SQL Glyph';
     this.item.tooltip = this.engine?.ready
       ? `SQL Glyph · ${this.engine.message}`
-      : 'SQL Glyph — Decipher. Transform. Transpile.';
+      : 'SQL Glyph: Decipher. Transform. Transpile.';
     this.item.backgroundColor = undefined;
     this.item.color = undefined;
   }
