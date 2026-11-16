@@ -300,3 +300,88 @@ def test_lateral_view_is_flagged_only_when_it_remains():
     )
     assert "CROSS JOIN UNNEST" in good["convertedSql"]
     assert "lateral-view-unsupported" not in _rule_ids(good)
+
+
+def test_on_conflict_without_target_support_is_unsupported():
+    sql = "INSERT INTO t (id, v) VALUES (1, 'a') ON CONFLICT (id) DO UPDATE SET v = EXCLUDED.v"
+    bad = transpile(sql, "postgres", "mysql", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "on-conflict-unsupported" in _rule_ids(bad)
+
+    good = transpile(sql, "postgres", "duckdb", pretty=False)
+    assert good["status"] == "success"
+    assert "ON CONFLICT" in good["convertedSql"]
+
+
+def test_distinct_on_without_target_support_is_unsupported():
+    sql = "SELECT DISTINCT ON (user_id) user_id, created_at FROM events ORDER BY user_id, created_at DESC"
+    bad = transpile(sql, "postgres", "clickhouse", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "distinct-on-unsupported" in _rule_ids(bad)
+
+    good = transpile(sql, "postgres", "duckdb", pretty=False)
+    assert "distinct-on-unsupported" not in _rule_ids(good)
+
+
+def test_ilike_without_target_support_is_unsupported():
+    sql = "SELECT * FROM t WHERE name ILIKE 'ada%'"
+    bad = transpile(sql, "postgres", "tsql", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "ilike-unsupported" in _rule_ids(bad)
+
+    good = transpile(sql, "postgres", "snowflake", pretty=False)
+    assert "ilike-unsupported" not in _rule_ids(good)
+
+
+def test_aggregate_filter_without_target_support_is_unsupported():
+    sql = "SELECT COUNT(*) FILTER (WHERE active) AS n FROM users"
+    bad = transpile(sql, "postgres", "redshift", pretty=False)
+    assert bad["status"] == "unsupported"
+    assert "aggregate-filter-unsupported" in _rule_ids(bad)
+
+    good = transpile(sql, "postgres", "trino", pretty=False)
+    assert good["status"] == "success"
+    assert "FILTER" in good["convertedSql"]
+
+
+def test_clickhouse_aggregate_functions_are_reported_as_unmapped():
+    for sql in (
+        "SELECT uniqExact(x) FROM t",
+        "SELECT groupArray(x) FROM t",
+        "SELECT sumIf(x, active) FROM t",
+    ):
+        result = transpile(sql, "clickhouse", "postgres", pretty=False)
+        assert result["status"] == "warning"
+        assert "unmapped-function" in _rule_ids(result)
+
+
+def test_internal_function_names_are_errors():
+    result = transpile("SELECT DATEADD(day, 1, a) FROM t", "redshift", "oracle", pretty=False)
+    assert result["status"] == "unsupported"
+    assert "internal-function-leak" in _rule_ids(result)
+
+    to_teradata = transpile("SELECT FORMAT_DATE('%Y', ts) FROM t", "bigquery", "teradata", pretty=False)
+    assert to_teradata["status"] == "unsupported"
+    assert "internal-function-leak" in _rule_ids(to_teradata)
+
+
+def test_all_targets_accept_a_portable_query_without_errors():
+    sql = (
+        "SELECT id, COUNT(*) AS n FROM users WHERE active = TRUE "
+        "GROUP BY id ORDER BY n DESC LIMIT 10"
+    )
+    for target in SUPPORTED_DIALECT_IDS:
+        result = transpile(sql, "postgres", target, pretty=False)
+        assert result["status"] in {"success", "warning"}, target
+        assert result["metadata"]["roundTripVerified"] is True, target
+        assert not result["statementErrors"], target
+        assert "SELECT AS" not in result["convertedSql"].upper(), target
+
+
+def test_all_sources_convert_a_portable_query_to_postgres():
+    sql = "SELECT id, name FROM users WHERE active = TRUE ORDER BY id LIMIT 5"
+    for source in SUPPORTED_DIALECT_IDS:
+        result = transpile(sql, source, "postgres", pretty=False)
+        assert result["status"] in {"success", "warning"}, source
+        assert result["metadata"]["roundTripVerified"] is True, source
+        assert not result["statementErrors"], source

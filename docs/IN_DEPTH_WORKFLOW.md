@@ -885,7 +885,7 @@ will see include:
 | QUALIFY | `qualify-support`, `qualify-rewritten`, `qualify-unsupported` |
 | Pagination | `pagination`, `pagination-without-order` |
 | Vendor syntax | `vendor-clause`, `vendor-construct`, `unmapped-function`, `stored-procedure` |
-| Known bad output | `from-unixtime-unsupported`, `approx-distinct-unsupported`, `explode-unsupported`, `lateral-view-unsupported`, `empty-generated-expression` |
+| Known bad output | `from-unixtime-unsupported`, `approx-distinct-unsupported`, `explode-unsupported`, `lateral-view-unsupported`, `empty-generated-expression`, `internal-function-leak`, `on-conflict-unsupported`, `distinct-on-unsupported`, `ilike-unsupported`, `aggregate-filter-unsupported` |
 | Engine | `sqlglot-warning` |
 
 The analyzer is deliberately conservative: a successful generation does not

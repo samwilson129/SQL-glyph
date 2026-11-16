@@ -44,6 +44,35 @@ JSON_TYPES = {
     "JSONValue",
 }
 
+# SQLGlot expression class names that can leak into generated SQL when a
+# target has no transform for the node.  They are not real functions in any
+# supported target, so seeing one means the output is not runnable as-is.
+INTERNAL_FUNCTION_NAMES = {
+    "UNIX_TO_STR",
+    "STR_TO_UNIX",
+    "UNIX_TO_TIME",
+    "UNIX_TO_TIME_STR",
+    "TIME_TO_UNIX",
+    "TIME_TO_STR",
+    "TIME_TO_TIME_STR",
+    "TIME_STR_TO_TIME",
+    "TIME_STR_TO_DATE",
+    "TIME_STR_TO_UNIX",
+    "TS_OR_DS_ADD",
+    "TS_OR_DS_DIFF",
+    "TS_OR_DS_TO_DATE",
+    "TS_OR_DS_TO_DATE_STR",
+    "TS_OR_DS_TO_DATETIME",
+    "TS_OR_DS_TO_TIME",
+    "TS_OR_DS_TO_TIMESTAMP",
+    "TS_OR_DI_TO_DI",
+    "DATE_TO_DI",
+    "DI_TO_DATE",
+    "DATE_TO_DATE_STR",
+    "DATE_STR_TO_DATE",
+    "STR_TO_DATE",
+}
+
 ARRAY_TYPES = {
     "Array",
     "ArrayAgg",
@@ -638,6 +667,30 @@ def build_diagnostics(
             confidence="high",
         )
 
+    leaked_internal = sorted(
+        name
+        for name in INTERNAL_FUNCTION_NAMES
+        if re.search(r"\b{}\s*\(".format(name), converted_sql, flags=re.IGNORECASE)
+    )
+    if "STR_TO_DATE" in leaked_internal and target == "mysql":
+        leaked_internal.remove("STR_TO_DATE")
+    if (
+        "UNIX_TO_STR" in leaked_internal
+        and "UnixToStr" in types
+        and target not in {"duckdb", "trino", "presto", "spark", "databricks", "hive"}
+    ):
+        leaked_internal.remove("UNIX_TO_STR")
+    if leaked_internal:
+        builder.add(
+            "error",
+            "unsupported_syntax",
+            "SQLGlot emitted an internal function name ({}), which is not valid target SQL. A manual rewrite "
+            "is required.".format(", ".join(leaked_internal[:3])),
+            "internal-function-leak",
+            detail="This output should not be run.",
+            confidence="high",
+        )
+
     if "ApproxDistinct" in types and target in {
         "postgres",
         "mysql",
@@ -688,6 +741,83 @@ def build_diagnostics(
             "The target dialect has no verified mapping for EXPLODE. The generated SQL may not be valid. "
             "Rewrite the array expansion with a target-specific construct.",
             "explode-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if re.search(r"\bON\s+CONFLICT\b", converted_sql, flags=re.IGNORECASE) and target not in {
+        "postgres",
+        "sqlite",
+        "duckdb",
+    }:
+        node = _first(statements, "OnConflict")
+        builder.add(
+            "error",
+            "merge",
+            "The target dialect does not support INSERT ... ON CONFLICT, but the generated SQL retains it. "
+            "Rewrite the upsert with MERGE or a target-specific construct.",
+            "on-conflict-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if re.search(r"\bDISTINCT\s+ON\b", converted_sql, flags=re.IGNORECASE) and target not in {
+        "postgres",
+        "duckdb",
+    }:
+        node = _first(statements, "Distinct")
+        builder.add(
+            "error",
+            "unsupported_syntax",
+            "The target dialect does not support DISTINCT ON, but the generated SQL retains it. Rewrite it "
+            "with ROW_NUMBER() or a target-specific deduplication.",
+            "distinct-on-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if re.search(r"\bILIKE\b", converted_sql, flags=re.IGNORECASE) and target not in {
+        "postgres",
+        "duckdb",
+        "snowflake",
+        "redshift",
+        "clickhouse",
+        "spark",
+        "databricks",
+    }:
+        node = _first(statements, "ILike")
+        builder.add(
+            "error",
+            "unsupported_syntax",
+            "The target dialect does not support ILIKE, but the generated SQL retains it. Rewrite it with "
+            "LOWER(...) LIKE LOWER(...) or a target-specific case-insensitive comparison.",
+            "ilike-unsupported",
+            node=node,
+            expression=_sql(node, source) if node is not None else None,
+            detail="This output should not be run without a manual rewrite.",
+            confidence="high",
+        )
+
+    if re.search(r"\bFILTER\s*\(\s*WHERE\b", converted_sql, flags=re.IGNORECASE) and target in {
+        "mysql",
+        "oracle",
+        "redshift",
+        "hive",
+        "teradata",
+    }:
+        node = _first(statements, "Filter")
+        builder.add(
+            "error",
+            "unsupported_syntax",
+            "The target dialect does not support aggregate FILTER (WHERE ...), but the generated SQL retains "
+            "it. Rewrite it with a CASE expression inside the aggregate.",
+            "aggregate-filter-unsupported",
             node=node,
             expression=_sql(node, source) if node is not None else None,
             detail="This output should not be run without a manual rewrite.",
@@ -790,7 +920,7 @@ def build_diagnostics(
     # --- Unmapped functions ---------------------------------------------------
     anonymous_seen: Set[str] = set()
     for node in nodes:
-        if _type_name(node) != "Anonymous":
+        if _type_name(node) not in {"Anonymous", "AnonymousAggFunc", "CombinedAggFunc"}:
             continue
         name = str(getattr(node, "this", "") or "unknown")
         if name in anonymous_seen:

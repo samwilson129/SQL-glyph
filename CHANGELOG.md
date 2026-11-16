@@ -9,6 +9,9 @@ All notable changes to SQL Glyph are documented here.
 - ClickHouse `count()` is normalized to `COUNT(*)` when the target requires an argument.
 - QUALIFY diagnostics no longer report an error after SQLGlot rewrites the clause into a subquery, and Redshift is recognized as supporting QUALIFY.
 - Conversions that would emit invalid target functions are now reported as unsupported instead of success: `from_unixtime`, approximate-distinct, EXPLODE and LATERAL VIEW, and empty generated expressions.
+- SQLGlot internal function names such as `TS_OR_DS_ADD`, `TIME_TO_STR`, and `STR_TO_UNIX` are reported as unsupported instead of being presented as valid target SQL.
+- Upserts, `DISTINCT ON`, `ILIKE`, and aggregate `FILTER` clauses are reported as unsupported when the target dialect does not accept them.
+- Unknown aggregate functions such as ClickHouse `uniqExact`, `groupArray`, and `sumIf` now produce an unmapped-function warning instead of a false success.
 
 ## [0.2.1] - 2026-11-15
 
